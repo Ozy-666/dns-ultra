@@ -200,5 +200,5 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-- DNSCrypt-Proxy project for the underlying tool and resolver list
+- [DNSCrypt/dnscrypt-proxy](https://github.com/DNSCrypt/dnscrypt-proxy) project for the underlying tool and resolver list
 - Authoritative DNS operators (Cloudflare, Google, Amazon, Microsoft, Wikimedia) who serve our recursion probes without complaint
