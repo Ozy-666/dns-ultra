@@ -1,4 +1,8 @@
 # dns-ultra
+[![Release](https://img.shields.io/github/v/release/Ozy-666/dns-ultra?style=flat-square&color=blue)](https://github.com/Ozy-666/dns-ultra/releases/latest)
+[![License](https://img.shields.io/github/license/Ozy-666/dns-ultra?style=flat-square&color=green)](LICENSE)
+[![Made with Bash](https://img.shields.io/badge/Bash-100%25-1f425f?style=flat-square&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![dnscrypt-proxy](https://img.shields.io/badge/dnscrypt--proxy-2.1.5+-orange?style=flat-square)](https://github.com/DNSCrypt/dnscrypt-proxy)
 
 **A methodology-honest benchmark for picking dnscrypt-proxy upstream resolvers.**
 
