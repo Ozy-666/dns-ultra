@@ -121,12 +121,17 @@ If you see Quad9-DoH flagged as `weak` due to packet loss, that's separate — Q
 ## Example output
 
 ```
-SERVER                              RTT  PROTO    GEO       REL   F_MED  F_P95  F_LOSS  R_MED   R_P95   SCORE
-cloudflare                          5ms  DoH      Anycast   ok    4ms    9ms    0.00%   22.00ms 34ms     7.23
-cs-swe                              7ms  DNSCrypt swe       ok    7ms    16ms   0.00%   15.00ms 106ms   14.30
-quad9-dnscrypt-ip4-nofilter-pri     6ms  DNSCrypt Anycast   ok    6ms    8ms    0.00%   16.00ms 213ms   16.08
-rethinkdns-doh                     23ms  DoH      ?         ok    17ms   29ms   0.00%   35.50ms 58ms    19.22
-dnscry.pt-stockholm-ipv4            7ms  DNSCrypt stockholm ok    7ms    33ms   0.00%   16.50ms 151ms   24.15
+SERVER                               PROTO    GEO        MED     P95     MAX     JIT     LOSS%   TRIMAVG
+quad9-dnscrypt-ip4-nofilter-pri      DNSCrypt Anycast    6ms     7ms     NA      0.66    0.00    6.32   
+nextdns-ultralow                     DoH      Anycast    7ms     8ms     NA      1.13    0.00    6.85   
+cloudflare                           DoH      Anycast    4ms     14ms    NA      5.15    0.00    4.07   
+cs-swe                               DNSCrypt swe        7ms     18ms    NA      6.36    0.00    7.25   
+dnscry.pt-stockholm-ipv4             DNSCrypt stockholm  7ms     29ms    NA      12.80   0.00    7.13   
+njalla-doh                           DoH      ?          17ms    28ms    NA      5.81    0.00    16.70  
+cs-norway                            DNSCrypt norway     15ms    30ms    NA      7.38    0.00    14.55  
+scaleway-ams                         DNSCrypt FR         26ms    26ms    NA      0.63    0.00    25.60  
+dnscry.pt-tuusula-ipv4               DNSCrypt tuusula    1ms     38ms    NA      20.45   0.00    1.30   
+dns.digitalsize.net                  DoH      ?          26ms    31ms    NA      2.50    0.00    26.22 
 ```
 
 ## Recommended dnscrypt-proxy config block
@@ -136,12 +141,13 @@ The script generates a ready-to-paste TOML block from the top scoring servers:
 ```toml
 server_names = [
     'cloudflare',
-    'cs-swe',
+    'nextdns-ultralow',
     'quad9-dnscrypt-ip4-nofilter-pri',
-    'rethinkdns-doh',
-    'dnscry.pt-stockholm-ipv4',
-    'dnscry.pt-stockholm02-ipv4',
+    'cs-swe',
+    'cs-norway',
+    'njalla-doh',
 ]
+
 
 lb_strategy = 'wp2'
 lb_estimator = true
