@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# dns-ultra-v8.2.1.sh — Upstream Resolver Profiler for AGH -> Unbound -> dnscrypt-proxy
+# dns-ultra.sh — Upstream Resolver Profiler for AGH -> Unbound -> dnscrypt-proxy
 # ============================================================================
 #
 # Goal:
@@ -25,16 +25,51 @@ set -u
 # Force C locale to ensure dig, awk, and sort output predictable English strings
 export LC_ALL=C
 
-if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "DNSCRYPT ULTRA-BENCH v8.2.1 — Public Resolver Upstream Profiler"
-    echo ""
-    echo "Environment variables:"
-    echo "  PROXY_BIN      Path to dnscrypt-proxy (default: /opt/dnscrypt2.1.5/dnscrypt-proxy)"
-    echo "  TOP_PHASE2     Number of RTT-top servers to profile (default: 24)"
-    echo "  DNSCRYPT_CACHE Set to 'true' if no external caching layer is used (default: false)"
-    exit 0
+# ============================================================================
+# ARGUMENT PARSING
+# ============================================================================
+
+QUICK_MODE="false"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "DNSCRYPT ULTRA-BENCH v8.2.1 — Public Resolver Upstream Profiler"
+            echo ""
+            echo "Options:"
+            echo "  --quick           Fast benchmark (~3 min): 8 candidates, fewer rounds"
+            echo "  -h, --help        Show this help and exit"
+            echo ""
+            echo "Environment variables:"
+            echo "  PROXY_BIN         Path to dnscrypt-proxy (default: /opt/dnscrypt2.1.5/dnscrypt-proxy)"
+            echo "  TOP_PHASE2        Number of RTT-top servers to profile (default: 24, quick: 8)"
+            echo "  DNSCRYPT_CACHE    Set to 'true' if no external caching layer is used (default: false)"
+            exit 0
+            ;;
+        --quick)
+            QUICK_MODE="true"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Run '$0 --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Apply quick mode by reducing default parameters BEFORE they're read
+if [ "$QUICK_MODE" = "true" ]; then
+    TOP_PHASE2="${TOP_PHASE2:-6}"
+    FASTPATH_ROUNDS="${FASTPATH_ROUNDS:-3}"
+    RECURSION_ROUNDS="${RECURSION_ROUNDS:-2}"
+    SEQ_BURST_QUERIES="${SEQ_BURST_QUERIES:-10}"
+    PAR_BURST_QUERIES="${PAR_BURST_QUERIES:-10}"
+    COLDSTART_SAMPLES="${COLDSTART_SAMPLES:-1}"
+    WARMUP_QUERIES="${WARMUP_QUERIES:-3}"
+    TIMEOUT="${TIMEOUT:-30}"
 fi
 
 # ============================================================================
@@ -71,13 +106,6 @@ DNSCRYPT_CACHE="${DNSCRYPT_CACHE:-false}"
 
 # Providers worth testing even if their discovery RTT is not top-N
 PINNED_SERVERS=(
-    "cloudflare"
-    "quad9-doh-ip4-port443-nofilter-pri"
-    "quad9-doh-ip4-port443-nofilter-ecs-pri"
-    "quad9-dnscrypt-ip4-nofilter-pri"
-    "quad9-dnscrypt-ip4-nofilter-ecs-pri"
-    "mullvad-base-doh"
-    "controld-unfiltered"
     "nic.cz"
 )
 
