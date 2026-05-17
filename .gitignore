@@ -1,0 +1,17 @@
+# Benchmark output files
+dns-ultra-results.json
+dns-ultra-domain-tails.json
+dns-ultra-report.md
+dns-benchmark-results-v8.json
+dns-benchmark-domain-tails-v8.json
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
