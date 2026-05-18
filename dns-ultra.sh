@@ -305,8 +305,8 @@ ${server_line}
 ${disabled_line}
 
 require_dnssec = false
-require_nolog = true
-require_nofilter = true
+require_nolog = false
+require_nofilter = false
 
 ipv6_servers = false
 block_ipv6 = true
