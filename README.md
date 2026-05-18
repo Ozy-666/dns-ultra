@@ -249,5 +249,5 @@ This software is released under the **MIT License**. Check the included `LICENSE
 
 ## Acknowledgements
 
-* **DNSCrypt/dnscrypt-proxy** — For the exceptional underlying engine code and maintaining the open public resolver database.
+* **[DNSCrypt Proxy](https://github.com/DNSCrypt/dnscrypt-proxy)** — For the exceptional underlying engine code and maintaining the open public resolver database.
 * **Authoritative DNS Operators** (Cloudflare, Google, Amazon, Microsoft, Wikimedia) — For seamlessly routing our recursive diagnostic tracking queries without operational complaints.
