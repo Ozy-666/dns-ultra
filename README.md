@@ -122,7 +122,26 @@ score     = fastpath + recursion + burst + coldstart
 
 Quad9 and other DNSSEC-validating resolvers show naturally higher P95 on the recursion profile because they perform NSEC validation on NXDOMAIN responses. This is a security feature, not a defect. The scoring is calibrated so this does not unfairly penalize them — that's the whole point of the 0.25 recursion multiplier.
 
-If you see Quad9-DoH flagged as `weak` due to packet loss, that's separate — Quad9-DoH has stricter rate limiting than Quad9-DNSCrypt. The recommended-config block correctly prefers Quad9-DNSCrypt for this reason.
+## Why Quad9 DoH servers are excluded
+
+The benchmark permanently blocks all `quad9-doh-*` server names from every test it runs. Here is the short version of why, in plain language.
+
+**Quad9 offers the same resolver in two flavours:** DNSCrypt (encrypted UDP) and DoH (DNS inside HTTPS). Both go to the exact same Quad9 servers and return the same answers. The only difference is the transport.
+
+When we benchmarked both from a VPS node in Finland, the results were striking:
+
+| Flavour | Packet loss | Verdict |
+|---|---|---|
+| `quad9-dnscrypt-ip4-nofilter-pri` | **0.00%** | solid |
+| `quad9-doh-ip4-port443-nofilter-pri` | **4–6%** | weak |
+
+Same network. Same Quad9 infrastructure. Only the transport changed, and suddenly 1 in 20 queries was silently dropped.
+
+**Why does this happen?** DoH runs over HTTPS, which means every query travels inside a long-lived encrypted connection. Quad9's DoH edge servers count how many queries you send through a single connection and cut you off once you exceed their limit. When they cut you off, a few queries get dropped while your DNS client quietly reconnects. You usually never notice in a browser — one silent retry and you're back. But as a permanent upstream resolver under Unbound, those drops show up as real latency spikes and occasional failures for your users.
+
+Quad9's DNSCrypt flavour uses plain encrypted UDP packets instead. Each packet is completely independent — there is no "connection" to rate-limit. So the same Quad9 servers that trip over their own DoH limits handle DNSCrypt traffic without dropping a single packet.
+
+**The fix is simple: use Quad9 DNSCrypt.** You get identical privacy, identical DNSSEC validation, and zero packet loss. The benchmark enforces this by excluding Quad9 DoH from discovery entirely, so it can never sneak into your recommended config because it happened to have a fast RTT on the day you ran the test.
 
 ## Output files
 

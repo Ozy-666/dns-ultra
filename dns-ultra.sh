@@ -178,6 +178,23 @@ PINNED_SERVERS=(
     "nic.cz"
 )
 
+# Servers permanently excluded from every spawned dnscrypt-proxy instance.
+# Quad9 DoH servers are excluded because real-world testing from VPS nodes shows
+# 4–6% sustained packet loss on their DoH stack under normal sequential query load,
+# while the identical Quad9 DNSCrypt servers show 0.00% loss on the same network.
+# The cause is Quad9's DoH edge applying per-session HTTP/2 stream limits that
+# DNSCrypt (stateless UDP) is simply not subject to. Use Quad9 DNSCrypt instead.
+DISABLED_SERVERS=(
+    "quad9-doh-ip4-port443-nofilter-pri"
+    "quad9-doh-ip4-port443-nofilter-ecs-pri"
+    "quad9-doh-ip4-port5053-nofilter-pri"
+    "quad9-doh-ip4-port5053-nofilter-ecs-pri"
+    "quad9-doh-ip6-port443-nofilter-pri"
+    "quad9-doh-ip6-port443-nofilter-ecs-pri"
+    "quad9-doh-ip6-port5053-nofilter-pri"
+    "quad9-doh-ip6-port5053-nofilter-ecs-pri"
+)
+
 # FASTPATH: Fixed real names. These should generally hit upstream resolver cache.
 FASTPATH_DOMAINS=(
     "google.com"
@@ -273,9 +290,14 @@ write_config() {
         local server_line="server_names = []"
     fi
 
+    local disabled_csv
+    disabled_csv=$(printf "'%s', " "${DISABLED_SERVERS[@]}")
+    local disabled_line="disabled_server_names = [${disabled_csv%, }]"
+
     cat > "$cfg" <<EOF
 listen_addresses = ['${LISTEN_IP}:${port}']
 ${server_line}
+${disabled_line}
 
 require_dnssec = false
 require_nolog = true

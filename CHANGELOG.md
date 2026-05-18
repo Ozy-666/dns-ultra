@@ -7,6 +7,7 @@ All notable changes to dns-ultra are documented here.
 ### Added
 - **DoH-aware per-server detection**: Each server in the Phase 2 profiling loop is classified as DoH if its protocol tag or name contains `doh` (case-insensitive). Sets an `IS_DOH` flag consumed by all downstream measurement functions, warmup loops, and burst tests.
 - **`doh_sleep()` micro-delay**: Lightweight 15ms fixed delay applied between every DoH query (fastpath, recursion, warmup, sequential burst). Prevents back-to-back request flooding on strict endpoints (Quad9, Cloudflare DoH) while keeping benchmark duration minimal. DNSCrypt servers bypass this entirely.
+- **`DISABLED_SERVERS` list + `disabled_server_names` in config**: All eight Quad9 DoH variants (`quad9-doh-*`) are permanently excluded from every dnscrypt-proxy instance spawned by the benchmark. Benchmarking confirmed 4–6% sustained packet loss on Quad9 DoH from VPS nodes while the identical Quad9 DNSCrypt servers show 0.00% loss on the same link. Root cause: Quad9's DoH edge enforces per-session HTTP/2 stream limits that stateless DNSCrypt/UDP is simply not subject to. Excluding them prevents them from ever appearing in the recommended config.
 - **VERSION string**: Script now declares `VERSION="8.2.4"` for explicit runtime identification.
 
 ### Changed
