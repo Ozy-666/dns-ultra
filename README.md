@@ -128,7 +128,7 @@ If you see Quad9-DoH flagged as `weak` due to packet loss, that's separate — Q
 
 ## Example output
 <p align="center">
-  <img src="screenshot.png" width="880" alt="dns-ultra terminal output">
+  <img src="images/screenshot.png" width="880" alt="dns-ultra terminal output">
 </p>
 ```
 
