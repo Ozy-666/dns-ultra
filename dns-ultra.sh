@@ -396,6 +396,18 @@ calc_trimmed_avg() {
 random_sleep() {
     sleep $(awk -v seed="$RANDOM" 'BEGIN{srand(seed); printf "%.3f", 0.05 + rand() * 0.1}')
 }
+doh_sleep() {
+    # 24-bit CSPRNG entropy → power-curve right-skewed delay (80–450ms).
+    # Mimics organic browser HTTPS inter-request gaps; evades DoH rate-limit detectors.
+    local raw
+    raw=$(openssl rand -hex 3)
+    sleep $(awk -v hex="$raw" 'BEGIN {
+        val    = strtonum("0x" hex)
+        norm   = val / 16777215.0
+        shaped = norm ^ 1.7
+        printf "%.3f", 0.080 + shaped * 0.370
+    }')
+}
 safe_name() {
     printf "%s" "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
 }
@@ -499,9 +511,9 @@ measure_domain_set() {
                 echo "$qtime" >> "$out_file"
                 echo "$qtime" >> "$domain_file"
             fi
-            # Ethical pacing: 50ms delay prevents rate-limiting on strict resolvers
-            # and accurately emulates Unbound's sequential cache-miss behavior.
-            random_sleep
+            # Ethical pacing: DNSCrypt uses light uniform jitter; DoH uses
+            # CSPRNG-seeded non-linear delay to evade HTTP/2 rate-limit detectors.
+            if [ "${IS_DOH:-0}" -eq 1 ]; then doh_sleep; else random_sleep; fi
         done
 
         n=$(calc_count < "$domain_file")
@@ -532,21 +544,21 @@ measure_seq_burst() {
         if qtime=$(dig_query_time "$port" "$domain"); then
             echo "$qtime" >> "$out_file"
         fi
-        # Ethical pacing for burst to avoid artificial DDoS perception
-        random_sleep
+        if [ "${IS_DOH:-0}" -eq 1 ]; then doh_sleep; else random_sleep; fi
     done
 }
 
 measure_parallel_burst() {
     local port="$1"
     local out_file="$2"
+    local is_doh="${3:-0}"
     local domains_file="$BENCH_DIR/par_domains_${port}.txt"
 
     : > "$out_file"
     : > "$domains_file"
 
     local base_count="${#BURST_BASE_DOMAINS[@]}"
-    local rand base
+    local rand base sleep_cmd
 
     for _ in $(seq 1 "$PAR_BURST_QUERIES"); do
         rand=$(openssl rand -hex 4)
@@ -554,8 +566,16 @@ measure_parallel_burst() {
         echo "${rand}.${base}" >> "$domains_file"
     done
 
+    if [ "$is_doh" -eq 1 ]; then
+        # DoH: CSPRNG-seeded non-linear delay (80–450ms right-skewed)
+        sleep_cmd='raw=$(openssl rand -hex 3); sleep $(awk -v hex="$raw" '"'"'BEGIN{val=strtonum("0x" hex);norm=val/16777215.0;shaped=norm^1.7;printf "%.3f",0.080+shaped*0.370}'"'"')'
+    else
+        # DNSCrypt: original fast uniform jitter (0–100ms)
+        sleep_cmd='sleep $(awk -v seed="$RANDOM" '"'"'BEGIN{srand(seed);printf "%.3f",rand()*0.1}'"'"')'
+    fi
+
     xargs -P "$PAR_BURST_JOBS" -I{} \
-        sh -c "sleep \$(awk -v seed=\"\$RANDOM\" 'BEGIN{srand(seed); printf \"%.3f\", rand() * 0.1}'); dig @$LISTEN_IP -p $port {} A +time=$DIG_TIMEOUT_SEC +tries=1 +stats 2>/dev/null" \
+        sh -c "$sleep_cmd; dig @$LISTEN_IP -p $port {} A +time=$DIG_TIMEOUT_SEC +tries=1 +stats 2>/dev/null" \
         < "$domains_file" |
         awk '/Query time:/ {print $4}' |
         awk '$1 ~ /^[0-9]+$/ {print $1}' > "$out_file"
@@ -757,6 +777,11 @@ while IFS='|' read -r rtt name proto; do
     GEO="${GEO_MAP[$name]:-}"
     SAFE=$(safe_name "$name")
 
+    IS_DOH=0
+    if [[ "${proto,,}" == *"doh"* ]] || [[ "${name,,}" == *"doh"* ]]; then
+        IS_DOH=1
+    fi
+
     printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$GEO"
 
     CFG="$BENCH_DIR/${SAFE}.toml"
@@ -807,10 +832,12 @@ while IFS='|' read -r rtt name proto; do
     for warm_domain in google.com cloudflare.com github.com wikipedia.org; do
         for _ in $(seq 1 2); do
             dig_query_time "$PORT" "$warm_domain" >/dev/null 2>&1 || true
+            [ "$IS_DOH" -eq 1 ] && doh_sleep
         done
     done
     for _ in $(seq 1 "$WARMUP_QUERIES"); do
         dig_query_time "$PORT" "google.com" >/dev/null 2>&1 || true
+        [ "$IS_DOH" -eq 1 ] && doh_sleep
     done
 
     FAST_FILE="$BENCH_DIR/${SAFE}_fast.txt"
@@ -843,7 +870,7 @@ while IFS='|' read -r rtt name proto; do
     SEQ_BURST_FILE="$BENCH_DIR/${SAFE}_seq_burst.txt"
     PAR_BURST_FILE="$BENCH_DIR/${SAFE}_par_burst.txt"
     measure_seq_burst "$PORT" "$SEQ_BURST_FILE"
-    measure_parallel_burst "$PORT" "$PAR_BURST_FILE"
+    measure_parallel_burst "$PORT" "$PAR_BURST_FILE" "$IS_DOH"
 
     if [ $INTERRUPTED -eq 1 ]; then break; fi
 
