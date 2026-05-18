@@ -26,6 +26,20 @@ set -u
 export LC_ALL=C
 
 # ============================================================================
+# COLORS  (defined first so require_bin and pre-flight checks can use them)
+# ============================================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ============================================================================
 # ARGUMENT PARSING
 # ============================================================================
 
@@ -199,21 +213,6 @@ BURST_BASE_DOMAINS=(
     "wikipedia.org"
     "amazon.com"
 )
-
-# ============================================================================
-# COLORS
-# ============================================================================
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-WHITE='\033[1;37m'
-DIM='\033[2m'
-NC='\033[0m'
-
 
 # ============================================================================
 # TEMPORARY DIRECTORY & CLEANUP
@@ -727,10 +726,10 @@ echo -e "${GREEN}      Servers usable:${NC} $FOUND (RTT 1-${RTT_MAX_PHASE1}ms)"
 echo -e "${CYAN}      Phase 2 candidates:${NC} $CANDIDATE_COUNT (${TOP_PHASE2} RTT-top plus pinned if available)"
 echo ""
 
-head -n "$CANDIDATE_COUNT" "$BENCH_DIR/phase2_candidates.txt" | while IFS='|' read -r rtt name proto; do
+while IFS='|' read -r rtt name proto; do
     geo="${GEO_MAP[$name]:-?}"
     printf "      ${GREEN}%4sms${NC}  %-42s ${DIM}[%-8s %s]${NC}\n" "$rtt" "$name" "$proto" "$geo"
-done
+done < <(head -n "$CANDIDATE_COUNT" "$BENCH_DIR/phase2_candidates.txt")
 echo ""
 
 # ============================================================================
@@ -932,7 +931,7 @@ echo ""
 echo -e "${YELLOW}[3/6]${NC} Main ranking — public resolver upstream score"
 echo ""
 echo -e "${WHITE}====================================================================================================================================${NC}"
-printf "%-36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+printf "%-36.36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
     "SERVER" "RTT" "PROTO" "GEO" "REL" "F_MED" "F_P95" "F_LOSS" "R_MED" "R_P95" "P_P95" "COLD" "SCORE" "PARTS"
 echo -e "${WHITE}====================================================================================================================================${NC}"
 
@@ -947,7 +946,7 @@ sort -t'|' -k32 -n "$FINAL_TXT" | while IFS='|' read -r \
     [ "$rel" = "watch" ] && COLOR=$YELLOW
     [ "$rel" = "weak" ] && COLOR=$RED
 
-    printf "${COLOR}%-36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %s/%s/%s${NC}\n" \
+    printf "${COLOR}%-36.36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %s/%s/%s${NC}\n" \
         "$name" "${rtt}ms" "$proto" "$geo" "$rel" \
         "${fast_med}ms" "${fast_p95}ms" "${fast_loss}%" \
         "${rec_med}ms" "${rec_p95}ms" "${par_p95}ms" \
@@ -957,7 +956,7 @@ done
 echo ""
 echo -e "${YELLOW}[4/6]${NC} Fast-path ranking only"
 echo ""
-printf "%-36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+printf "%-36.36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
     "SERVER" "PROTO" "GEO" "MED" "P95" "MAX" "JIT" "LOSS%" "TRIMAVG"
 
 sort -t'|' -k28 -n "$FINAL_TXT" | head -n 10 | while IFS='|' read -r \
@@ -967,7 +966,7 @@ sort -t'|' -k28 -n "$FINAL_TXT" | head -n 10 | while IFS='|' read -r \
     seq_avg seq_p95 seq_loss par_avg par_p95 par_loss \
     score_fast score_rec score_burst score_cold score; do
 
-    printf "%-36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+    printf "%-36.36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
         "$name" "$proto" "$geo" "${fast_med}ms" "${fast_p95}ms" "$fast_p99" "$fast_jit" "$fast_loss" "$fast_trim"
 done
 
@@ -977,11 +976,11 @@ echo ""
 echo -e "${DIM}      Helps identify which specific domains caused high P95 values.${NC}"
 echo ""
 
-sort -t'|' -k32 -n "$FINAL_TXT" | head -n 6 | cut -d'|' -f1 | while read -r top_name; do
+while read -r top_name; do
     echo -e "  ${WHITE}${top_name}${NC}"
     awk -F'|' -v srv="$top_name" '$1 == srv {printf "      %-9s %-18s n=%-3s med=%-6sms avg=%-7sms p95=%sms\n", $2, $3, $4, $5, $6, $7}' "$DOMAIN_TAILS"
     echo ""
-done
+done < <(sort -t'|' -k32 -n "$FINAL_TXT" | head -n 6 | cut -d'|' -f1)
 
 echo -e "${YELLOW}[6/6]${NC} Recommended dnscrypt-proxy config"
 echo ""

@@ -8,6 +8,11 @@ All notable changes to dns-ultra are documented here.
 - **Smart Binary Auto-Detection**: Added robust path discovery that scans both system `$PATH` and manual/portable installation structures (such as official unpacked release folders like `/opt/dnscrypt-proxy/linux-x86_64/`).
 - **Pre-flight Health Check**: Implemented strict validation that tests the discovered binary for existence and execution permissions before spawning background processes, avoiding silent logging failures.
 
+### Fixed (hotfixes)
+- **Unbound color variables**: Moved the `COLORS` block to immediately after `set -u` so that `require_bin` and the dnscrypt-proxy pre-flight check can reference `${RED}`/`${NC}` without hitting a `set -u` "unbound variable" crash when a dependency is missing.
+- **GEO_MAP subshell isolation**: Converted the candidate display loop and the tail-offender loop from pipe-into-`while` (which spawns a subshell where associative arrays are invisible) to process substitution (`< <(...)`), restoring correct geo-location labels in both sections.
+- **Table alignment truncation**: Changed `%-36s` to `%-36.36s` in all four `printf` format strings so that server names longer than 36 characters are hard-truncated, preventing column misalignment in the ranking tables.
+
 
 ## [8.2.1] — 2026-05-17
 
