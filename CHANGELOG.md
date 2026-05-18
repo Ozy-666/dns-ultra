@@ -5,12 +5,21 @@ All notable changes to dns-ultra are documented here.
 ## [8.2.4] — 2026-05-18
 
 ### Added
-- **DoH-aware adaptive pacing**: Introduced `doh_sleep()` — a high-entropy, non-linear inter-query delay function exclusive to DoH upstreams. Uses 24-bit OpenSSL CSPRNG output shaped through a `^1.7` power curve, producing a right-skewed 80–450ms delay distribution that mimics organic browser HTTPS inter-request gaps and safely evades HTTP/2 rate-limit detectors (Cloudflare DoH, Quad9, NextDNS).
-- **Per-server DoH detection**: Each server in the Phase 2 profiling loop is now classified as DoH if its protocol tag or server name contains `doh` (case-insensitive), setting an `IS_DOH` flag consumed by all downstream measurement functions.
-- **Conditional pacing throughout**: `doh_sleep` is applied in `measure_domain_set`, `measure_seq_burst`, the warmup loops, and `measure_parallel_burst` (via a new `is_doh` parameter). DNSCrypt servers bypass the new pacing entirely and continue benchmarking at maximum native speed.
+- **DoH-aware per-server detection**: Each server in the Phase 2 profiling loop is classified as DoH if its protocol tag or name contains `doh` (case-insensitive). Sets an `IS_DOH` flag consumed by all downstream measurement functions, warmup loops, and burst tests.
+- **`doh_sleep()` micro-delay**: Lightweight 15ms fixed delay applied between every DoH query (fastpath, recursion, warmup, sequential burst). Prevents back-to-back request flooding on strict endpoints (Quad9, Cloudflare DoH) while keeping benchmark duration minimal. DNSCrypt servers bypass this entirely.
+- **VERSION string**: Script now declares `VERSION="8.2.4"` for explicit runtime identification.
 
 ### Changed
-- `measure_parallel_burst` now accepts a third parameter (`is_doh`) and builds its `sh -c` sleep command conditionally, so parallel workers also use CSPRNG-seeded delays when testing DoH upstreams.
+- **DoH parallel burst forced sequential**: `measure_parallel_burst` accepts a new `is_doh` parameter and passes `-P 1` to `xargs` for DoH upstreams, preventing concurrent connection saturation that caused Quad9 DoH to show 20% packet loss. DNSCrypt remains fully parallelised at `PAR_BURST_JOBS`.
+- **`measure_parallel_burst` sleep command**: DoH workers use `sleep 0.015`; DNSCrypt workers retain the original `awk`-seeded uniform jitter (0–100ms).
+
+### Fixed
+- **UI bracket padding** (`[DoH      Anycast]` → `[DoH Anycast]`): Candidate list and Phase 2 profiling line now build a combined `proto+geo` tag and render it with a single tight `[%s]` specifier — no interior padding gaps.
+- **Table PROTO/GEO columns merged**: Sections 3 and 4 ranking tables replace the separate `%-8s PROTO` + `%-10s GEO` columns with a single `%-18s` combined column, eliminating dead whitespace for short protocol names (e.g. `DoH`).
+- **Unbound color variables** (`set -u` crash): Moved `COLORS` block above `require_bin` and the dnscrypt-proxy pre-flight check so `${RED}`/`${NC}` are always defined before first use.
+- **GEO_MAP subshell isolation**: Converted pipe-into-`while` loops to process substitution (`< <(...)`) in the candidate display and tail-offender sections so the associative array is visible inside the loop body.
+- **Table alignment truncation**: All four `printf` format strings changed from `%-36s` to `%-36.36s` — server names longer than 36 characters are hard-truncated instead of pushing columns out of alignment.
+- **Unknown geo label suppressed**: Servers with no geo match now show a blank field instead of `?`.
 
 ## [8.2.3] — 2026-05-18
 
