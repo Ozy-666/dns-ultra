@@ -789,6 +789,8 @@ DOMAIN_TAILS="$RESULTS_DIR/domain_tails.txt"
 : > "$DOMAIN_TAILS"
 
 COUNT=0
+FAILED_SERVERS=()
+PROFILE_START_SECS=$SECONDS
 
 while IFS='|' read -r rtt name proto; do
     if [ $INTERRUPTED -eq 1 ]; then break; fi
@@ -810,41 +812,14 @@ while IFS='|' read -r rtt name proto; do
     LOG="$BENCH_DIR/${SAFE}.log"
     write_config "$CFG" "$PORT" "$name"
 
-    # Cold-start: Start fresh process, wait for log readiness, measure first query.
-    # Increased timeout to 25s for slow DNSCrypt certificate fetches.
-    COLD_FILE="$BENCH_DIR/${SAFE}_cold.txt"
-    : > "$COLD_FILE"
-    COLD_FAIL=0
-
-    for cs in $(seq 1 "$COLDSTART_SAMPLES"); do
-        "$PROXY_BIN" -config "$CFG" > "$LOG.cold${cs}" 2>&1 &
-        COLD_PID=$!
-        ACTIVE_PIDS+=("$COLD_PID")
-
-        if wait_proxy_log_ready "$COLD_PID" "$LOG.cold${cs}" 25; then
-            RAND=$(openssl rand -hex 5)
-            if COLD_Q=$(dig_query_time "$PORT" "${RAND}.cloudflare.com"); then
-                echo "$COLD_Q" >> "$COLD_FILE"
-            else
-                COLD_FAIL=$((COLD_FAIL + 1))
-            fi
-        else
-            COLD_FAIL=$((COLD_FAIL + 1))
-        fi
-
-        kill "$COLD_PID" 2>/dev/null || true
-        wait "$COLD_PID" 2>/dev/null || true
-    done
-
-    COLDSTART=$(calc_median < "$COLD_FILE")
-
-    # Persistent proxy for profiling
+    # Persistent proxy for profiling — start first so fast-path can gate cold-start
     "$PROXY_BIN" -config "$CFG" > "$LOG" 2>&1 &
     PID=$!
     ACTIVE_PIDS+=("$PID")
 
     if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
         echo -e "${RED}FAILED (proxy did not become ready)${NC}"
+        FAILED_SERVERS+=("$name (proxy not ready)")
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
         continue
@@ -874,6 +849,51 @@ while IFS='|' read -r rtt name proto; do
 
     if [ "$FAST_SUCCESS" -eq 0 ]; then
         echo -e "${RED}FAILED (0 fast-path successful queries)${NC}"
+        FAILED_SERVERS+=("$name (0 fast-path queries)")
+        kill "$PID" 2>/dev/null || true
+        wait "$PID" 2>/dev/null || true
+        continue
+    fi
+
+    # Cold-start: server is confirmed alive — measure fresh-connection latency.
+    # Each sample kills and restarts the proxy to simulate a cold boot.
+    COLD_FILE="$BENCH_DIR/${SAFE}_cold.txt"
+    : > "$COLD_FILE"
+    COLD_FAIL=0
+
+    kill "$PID" 2>/dev/null || true
+    wait "$PID" 2>/dev/null || true
+
+    for cs in $(seq 1 "$COLDSTART_SAMPLES"); do
+        "$PROXY_BIN" -config "$CFG" > "$LOG.cold${cs}" 2>&1 &
+        COLD_PID=$!
+        ACTIVE_PIDS+=("$COLD_PID")
+
+        if wait_proxy_log_ready "$COLD_PID" "$LOG.cold${cs}" 25; then
+            RAND=$(openssl rand -hex 5)
+            if COLD_Q=$(dig_query_time "$PORT" "${RAND}.cloudflare.com"); then
+                echo "$COLD_Q" >> "$COLD_FILE"
+            else
+                COLD_FAIL=$((COLD_FAIL + 1))
+            fi
+        else
+            COLD_FAIL=$((COLD_FAIL + 1))
+        fi
+
+        kill "$COLD_PID" 2>/dev/null || true
+        wait "$COLD_PID" 2>/dev/null || true
+    done
+
+    COLDSTART=$(calc_median < "$COLD_FILE")
+
+    # Restart persistent proxy for recursion and burst measurements
+    "$PROXY_BIN" -config "$CFG" > "$LOG" 2>&1 &
+    PID=$!
+    ACTIVE_PIDS+=("$PID")
+
+    if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
+        echo -e "${RED}FAILED (proxy lost after cold-start)${NC}"
+        FAILED_SERVERS+=("$name (proxy lost after cold-start)")
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
         continue
@@ -960,12 +980,41 @@ while IFS='|' read -r rtt name proto; do
         printf "%s|recursion|%s|%s|%s|%s|%s\n" "$name" "$d" "$n" "$med" "$avg" "$p95" >> "$DOMAIN_TAILS"
     done
 
-    printf "${GREEN}OK${NC} ${DIM}score=%s fast=%s rec=%s burst=%s rel=%s${NC}\n" \
-        "$SCORE" "$SCORE_FAST" "$SCORE_REC" "$SCORE_BURST" "$RELIABILITY"
+    if awk -v s="$SCORE" 'BEGIN{exit !(s+0 < 20)}'; then
+        SCORE_COLOR=$GREEN
+    elif awk -v s="$SCORE" 'BEGIN{exit !(s+0 <= 50)}'; then
+        SCORE_COLOR=$YELLOW
+    else
+        SCORE_COLOR=$RED
+    fi
+
+    COLD_NOTE=""
+    [ "$COLD_FAIL" -ge "$COLDSTART_SAMPLES" ] && COLD_NOTE=" ${DIM}(cold: cert-fail)${NC}"
+
+    ETA_STR=""
+    if [ "$COUNT" -gt 1 ]; then
+        _elapsed=$(( SECONDS - PROFILE_START_SECS ))
+        _avg=$(( _elapsed / COUNT ))
+        _rem=$(( _avg * (CANDIDATE_COUNT - COUNT) ))
+        _rem_min=$(( _rem / 60 ))
+        [ "$_rem_min" -gt 0 ] && ETA_STR=" ${DIM}~${_rem_min}m left${NC}"
+    fi
+
+    printf "${SCORE_COLOR}OK${NC} ${DIM}score=%s fast=%s rec=%s burst=%s rel=%s${NC}%b%b\n" \
+        "$SCORE" "$SCORE_FAST" "$SCORE_REC" "$SCORE_BURST" "$RELIABILITY" \
+        "$COLD_NOTE" "$ETA_STR"
 
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
 done < "$BENCH_DIR/phase2_candidates.txt"
+
+if [ ${#FAILED_SERVERS[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${YELLOW}      Failed during profiling:${NC}"
+    for _f in "${FAILED_SERVERS[@]}"; do
+        echo -e "      ${RED}x${NC} ${DIM}${_f}${NC}"
+    done
+fi
 
 if [ $INTERRUPTED -eq 1 ]; then
     echo ""

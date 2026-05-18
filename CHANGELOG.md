@@ -5,6 +5,11 @@ All notable changes to dns-ultra are documented here.
 ## [8.2.4] — 2026-05-18
 
 ### Added
+- **Early bail before cold-start**: Cold-start measurements now run only after fast-path confirms the server is alive. Previously, cold-start (up to 3 × 25s timeouts) ran before fast-path, wasting ~75s on dead servers. Dead servers are now skipped immediately after fast-path fails.
+- **Color-coded score on profiling line**: Score label is green (< 20), yellow (20–50), or red (> 50) so winners and losers are visible while profiling runs, without waiting for the final table.
+- **ETA on profiling line**: After the first server completes, each subsequent line shows `~Xm left` based on average time per server so far.
+- **Cold-start cert-fail note**: When all cold-start samples fail (COLDSTART=999ms), the profiling line appends `(cold: cert-fail)` so users know this is a DNSCrypt certificate fetch failure, not a slow resolver.
+- **Failed server summary**: After profiling completes, a short list of any servers that failed (proxy not ready, or 0 fast-path queries) is printed with the failure reason.
 - **DoH-aware per-server detection**: Each server in the Phase 2 profiling loop is classified as DoH if its protocol tag or name contains `doh` (case-insensitive). Sets an `IS_DOH` flag consumed by all downstream measurement functions, warmup loops, and burst tests.
 - **`doh_sleep()` micro-delay**: Lightweight 15ms fixed delay applied between every DoH query (fastpath, recursion, warmup, sequential burst). Prevents back-to-back request flooding on strict endpoints (Quad9, Cloudflare DoH) while keeping benchmark duration minimal. DNSCrypt servers bypass this entirely.
 - **`DISABLED_SERVERS` list + `disabled_server_names` in config**: All eight Quad9 DoH variants (`quad9-doh-*`) are permanently excluded from every dnscrypt-proxy instance spawned by the benchmark. Benchmarking confirmed 4–6% sustained packet loss on Quad9 DoH from VPS nodes while the identical Quad9 DNSCrypt servers show 0.00% loss on the same link. Root cause: Quad9's DoH edge enforces per-session HTTP/2 stream limits that stateless DNSCrypt/UDP is simply not subject to. Excluding them prevents them from ever appearing in the recommended config.
