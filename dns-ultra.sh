@@ -397,16 +397,7 @@ random_sleep() {
     sleep $(awk -v seed="$RANDOM" 'BEGIN{srand(seed); printf "%.3f", 0.05 + rand() * 0.1}')
 }
 doh_sleep() {
-    # 24-bit CSPRNG entropy → power-curve right-skewed delay (80–450ms).
-    # Mimics organic browser HTTPS inter-request gaps; evades DoH rate-limit detectors.
-    local raw
-    raw=$(openssl rand -hex 3)
-    sleep $(awk -v hex="$raw" 'BEGIN {
-        val    = strtonum("0x" hex)
-        norm   = val / 16777215.0
-        shaped = norm ^ 1.7
-        printf "%.3f", 0.080 + shaped * 0.370
-    }')
+    sleep 0.015
 }
 safe_name() {
     printf "%s" "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
@@ -558,7 +549,7 @@ measure_parallel_burst() {
     : > "$domains_file"
 
     local base_count="${#BURST_BASE_DOMAINS[@]}"
-    local rand base sleep_cmd
+    local rand base par_jobs sleep_cmd
 
     for _ in $(seq 1 "$PAR_BURST_QUERIES"); do
         rand=$(openssl rand -hex 4)
@@ -567,14 +558,14 @@ measure_parallel_burst() {
     done
 
     if [ "$is_doh" -eq 1 ]; then
-        # DoH: CSPRNG-seeded non-linear delay (80–450ms right-skewed)
-        sleep_cmd='raw=$(openssl rand -hex 3); sleep $(awk -v hex="$raw" '"'"'BEGIN{val=strtonum("0x" hex);norm=val/16777215.0;shaped=norm^1.7;printf "%.3f",0.080+shaped*0.370}'"'"')'
+        par_jobs=1
+        sleep_cmd='sleep 0.015'
     else
-        # DNSCrypt: original fast uniform jitter (0–100ms)
+        par_jobs="$PAR_BURST_JOBS"
         sleep_cmd='sleep $(awk -v seed="$RANDOM" '"'"'BEGIN{srand(seed);printf "%.3f",rand()*0.1}'"'"')'
     fi
 
-    xargs -P "$PAR_BURST_JOBS" -I{} \
+    xargs -P "$par_jobs" -I{} \
         sh -c "$sleep_cmd; dig @$LISTEN_IP -p $port {} A +time=$DIG_TIMEOUT_SEC +tries=1 +stats 2>/dev/null" \
         < "$domains_file" |
         awk '/Query time:/ {print $4}' |
@@ -748,7 +739,8 @@ echo ""
 
 while IFS='|' read -r rtt name proto; do
     geo="${GEO_MAP[$name]:-}"
-    printf "      ${GREEN}%4sms${NC}  %-42s ${DIM}[%-8s %s]${NC}\n" "$rtt" "$name" "$proto" "$geo"
+    tag="${proto}${geo:+ $geo}"
+    printf "      ${GREEN}%4sms${NC}  %-42s ${DIM}[%s]${NC}\n" "$rtt" "$name" "$tag"
 done < <(head -n "$CANDIDATE_COUNT" "$BENCH_DIR/phase2_candidates.txt")
 echo ""
 
@@ -782,7 +774,8 @@ while IFS='|' read -r rtt name proto; do
         IS_DOH=1
     fi
 
-    printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$GEO"
+    TAG="${proto}${GEO:+ $GEO}"
+    printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
 
     CFG="$BENCH_DIR/${SAFE}.toml"
     LOG="$BENCH_DIR/${SAFE}.log"
@@ -958,8 +951,8 @@ echo ""
 echo -e "${YELLOW}[3/6]${NC} Main ranking — public resolver upstream score"
 echo ""
 echo -e "${WHITE}====================================================================================================================================${NC}"
-printf "%-36.36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
-    "SERVER" "RTT" "PROTO" "GEO" "REL" "F_MED" "F_P95" "F_LOSS" "R_MED" "R_P95" "P_P95" "COLD" "SCORE" "PARTS"
+printf "%-36.36s %-5s %-18s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+    "SERVER" "RTT" "PROTO" "REL" "F_MED" "F_P95" "F_LOSS" "R_MED" "R_P95" "P_P95" "COLD" "SCORE" "PARTS"
 echo -e "${WHITE}====================================================================================================================================${NC}"
 
 sort -t'|' -k32 -n "$FINAL_TXT" | while IFS='|' read -r \
@@ -973,8 +966,9 @@ sort -t'|' -k32 -n "$FINAL_TXT" | while IFS='|' read -r \
     [ "$rel" = "watch" ] && COLOR=$YELLOW
     [ "$rel" = "weak" ] && COLOR=$RED
 
-    printf "${COLOR}%-36.36s %-5s %-8s %-10s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %s/%s/%s${NC}\n" \
-        "$name" "${rtt}ms" "$proto" "$geo" "$rel" \
+    proto_geo="${proto}${geo:+ $geo}"
+    printf "${COLOR}%-36.36s %-5s %-18s %-5s %-6s %-6s %-6s %-7s %-7s %-7s %-7s %-7s %s/%s/%s${NC}\n" \
+        "$name" "${rtt}ms" "$proto_geo" "$rel" \
         "${fast_med}ms" "${fast_p95}ms" "${fast_loss}%" \
         "${rec_med}ms" "${rec_p95}ms" "${par_p95}ms" \
         "${cold}ms" "$score" "$score_fast" "$score_rec" "$score_burst"
@@ -983,8 +977,8 @@ done
 echo ""
 echo -e "${YELLOW}[4/6]${NC} Fast-path ranking only"
 echo ""
-printf "%-36.36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
-    "SERVER" "PROTO" "GEO" "MED" "P95" "MAX" "JIT" "LOSS%" "TRIMAVG"
+printf "%-36.36s %-18s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+    "SERVER" "PROTO" "MED" "P95" "MAX" "JIT" "LOSS%" "TRIMAVG"
 
 sort -t'|' -k28 -n "$FINAL_TXT" | head -n 10 | while IFS='|' read -r \
     name rtt proto geo rel cold cold_fail \
@@ -993,8 +987,9 @@ sort -t'|' -k28 -n "$FINAL_TXT" | head -n 10 | while IFS='|' read -r \
     seq_avg seq_p95 seq_loss par_avg par_p95 par_loss \
     score_fast score_rec score_burst score_cold score; do
 
-    printf "%-36.36s %-8s %-10s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
-        "$name" "$proto" "$geo" "${fast_med}ms" "${fast_p95}ms" "$fast_p99" "$fast_jit" "$fast_loss" "$fast_trim"
+    proto_geo="${proto}${geo:+ $geo}"
+    printf "%-36.36s %-18s %-7s %-7s %-7s %-7s %-7s %-7s\n" \
+        "$name" "$proto_geo" "${fast_med}ms" "${fast_p95}ms" "$fast_p99" "$fast_jit" "$fast_loss" "$fast_trim"
 done
 
 echo ""
