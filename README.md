@@ -93,6 +93,10 @@ chmod +x dns-ultra.sh
 
 # Combine both for the fastest possible run (~1–2 minutes)
 ./dns-ultra.sh --quick --parallel
+
+# Combine with a custom concurrency level
+./dns-ultra.sh --quick --parallel 6
+./dns-ultra.sh --parallel 8
 ```
 
 ### Where is dnscrypt-proxy?
