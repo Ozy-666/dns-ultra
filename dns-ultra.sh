@@ -817,7 +817,6 @@ profile_one_server() {
     [[ "${proto,,}" == *"doh"* ]] || [[ "${name,,}" == *"doh"* ]] && IS_DOH=1
 
     local TAG="${proto}${GEO:+ $GEO}"
-    printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
 
     local CFG="$BENCH_DIR/${SAFE}.toml"
     local LOG="$BENCH_DIR/${SAFE}.log"
@@ -828,7 +827,8 @@ profile_one_server() {
     local PID=$!
 
     if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
-        echo -e "${RED}FAILED (proxy did not become ready)${NC}"
+        printf "      Profiling [%2d/%d] %-42s ${DIM}[%-18s]${NC}  ${RED}FAILED${NC} ${DIM}(proxy not ready)${NC}\n" \
+            "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
         echo "$name (proxy not ready)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
@@ -856,7 +856,8 @@ profile_one_server() {
     FAST_TOTAL="${FAST_COUNTS##*|}";   FAST_TOTAL="${FAST_TOTAL:-0}"
 
     if [ "$FAST_SUCCESS" -eq 0 ]; then
-        echo -e "${RED}FAILED (0 fast-path successful queries)${NC}"
+        printf "      Profiling [%2d/%d] %-42s ${DIM}[%-18s]${NC}  ${RED}FAILED${NC} ${DIM}(0 fast-path queries)${NC}\n" \
+            "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
         echo "$name (0 fast-path queries)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
@@ -896,7 +897,8 @@ profile_one_server() {
     PID=$!
 
     if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
-        echo -e "${RED}FAILED (proxy lost after cold-start)${NC}"
+        printf "      Profiling [%2d/%d] %-42s ${DIM}[%-18s]${NC}  ${RED}FAILED${NC} ${DIM}(proxy lost after cold-start)${NC}\n" \
+            "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
         echo "$name (proxy lost after cold-start)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
@@ -1010,7 +1012,8 @@ profile_one_server() {
         [ "$_rem_min" -gt 0 ] && ETA_STR=" ${DIM}~${_rem_min}m left${NC}"
     fi
 
-    printf "${SCORE_COLOR}OK${NC} ${DIM}score=%s fast=%s rec=%s burst=%s rel=%s${NC}%b%b\n" \
+    printf "      Profiling [%2d/%d] %-42s ${DIM}[%-18s]${NC}  ${SCORE_COLOR}OK${NC} ${DIM}score=%s fast=%s rec=%s burst=%s rel=%s${NC}%b%b\n" \
+        "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG" \
         "$SCORE" "$SCORE_FAST" "$SCORE_REC" "$SCORE_BURST" "$RELIABILITY" \
         "$COLD_NOTE" "$ETA_STR"
 
