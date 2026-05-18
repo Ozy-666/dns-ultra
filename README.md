@@ -1,4 +1,4 @@
-# dns-ultra — DNS Resolver Benchmark for dnscrypt-proxy
+# DNS Resolver Benchmark for dnscrypt-proxy
 
 [![Release](https://img.shields.io/github/v/release/Ozy-666/dns-ultra?style=flat-square&color=blue)](https://github.com/Ozy-666/dns-ultra/releases/latest)
 [![License](https://img.shields.io/github/license/Ozy-666/dns-ultra?style=flat-square&color=green)](LICENSE)
