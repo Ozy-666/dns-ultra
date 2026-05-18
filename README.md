@@ -123,24 +123,13 @@ If you see Quad9-DoH flagged as `weak` due to packet loss, that's separate — Q
 
 | File | Contents |
 |---|---|
-| `dns-ultra-report.md` | Human-readable markdown report for issues/PRs |
-| `dns-ultra-results.json` | All metrics per server, sorted by score |
-| `dns-ultra-domain-tails.json` | Per-domain breakdown showing which names hurt P95 |
+| `dns-benchmark-results-v8.json` | All metrics per server, sorted by score |
+| `dns-benchmark-domain-tails-v8.json` | Per-domain breakdown showing which names hurt P95 |
 
 ## Example output
-
-```
-SERVER                               PROTO    GEO        MED     P95     MAX     JIT     LOSS%   TRIMAVG
-quad9-dnscrypt-ip4-nofilter-pri      DNSCrypt Anycast    6ms     7ms     NA      0.66    0.00    6.32   
-nextdns-ultralow                     DoH      Anycast    7ms     8ms     NA      1.13    0.00    6.85   
-cloudflare                           DoH      Anycast    4ms     14ms    NA      5.15    0.00    4.07   
-cs-swe                               DNSCrypt swe        7ms     18ms    NA      6.36    0.00    7.25   
-dnscry.pt-stockholm-ipv4             DNSCrypt stockholm  7ms     29ms    NA      12.80   0.00    7.13   
-njalla-doh                           DoH      ?          17ms    28ms    NA      5.81    0.00    16.70  
-cs-norway                            DNSCrypt norway     15ms    30ms    NA      7.38    0.00    14.55  
-scaleway-ams                         DNSCrypt FR         26ms    26ms    NA      0.63    0.00    25.60  
-dnscry.pt-tuusula-ipv4               DNSCrypt tuusula    1ms     38ms    NA      20.45   0.00    1.30   
-dns.digitalsize.net                  DoH      ?          26ms    31ms    NA      2.50    0.00    26.22 
+<p align="center">
+  <img src="screenshot.png" width="880" alt="dns-ultra terminal output">
+</p>
 ```
 
 ## Recommended dnscrypt-proxy config block
