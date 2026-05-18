@@ -85,8 +85,11 @@ chmod +x dns-ultra.sh
 # Or execute a high-speed profile run (~3–5 minutes, optimized candidate list)
 ./dns-ultra.sh --quick
 
-# Profile 2 servers at a time — cuts Phase 2 time roughly in half
+# Profile 4 servers at a time (default) — cuts Phase 2 time roughly in half
 ./dns-ultra.sh --parallel
+
+# Customize concurrency level — useful on faster machines or larger candidate sets
+./dns-ultra.sh --parallel 6
 
 # Combine both for the fastest possible run (~1–2 minutes)
 ./dns-ultra.sh --quick --parallel
@@ -132,7 +135,7 @@ All advanced profiling flags are handled cleanly via environment variables. Sane
 | `TIMEOUT` | `120` | `30` | Maximum operational execution seconds allocated for the initial discovery phase |
 | `LISTEN_IP` | `127.0.0.1` | — | Dedicated local loopback IP interface for binding spawned proxy instances |
 | `BASE_PORT` | `55000` | — | Base tracking port allocation floor for assigning testing proxy sockets |
-| `PAR_PROFILE_JOBS` | `2` | — | Number of servers profiled simultaneously when `--parallel` is used |
+| `PAR_PROFILE_JOBS` | `4` | — | Number of servers profiled simultaneously when `--parallel` is used |
 | `DNSCRYPT_CACHE` | `false` | — | Activates internal proxy caching logic (Enable only if no upstream Unbound is present) |
 
 ---

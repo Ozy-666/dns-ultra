@@ -2,6 +2,15 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.3.1] — 2026-05-19
+
+### Changed
+- **`--parallel` default raised from 2 → 4**: Better utilises modern hardware; 4 concurrent workers cut a 24-server full run from ~19 min to ~5 min without observable interference between slots.
+- **`--parallel N` inline argument**: Concurrency level can now be set directly on the command line (`--parallel 6`) instead of requiring the `PAR_PROFILE_JOBS` env var. Both methods still work.
+
+### Added
+- **Provider-spread scheduling**: Before parallel jobs start, the candidate list is reordered so servers from the same provider family (Quad9, Cloudflare, Google, cs-, dnscry.pt-, etc.) are never in the same concurrent slot. Round-robin merge across provider buckets ensures e.g. two Quad9 DNSCrypt nodes are separated by at least one server from a different network, avoiding per-session rate-limit triggers that skewed results when multiple Quad9 endpoints ran simultaneously.
+
 ## [8.3.0] — 2026-05-18
 
 ### Added

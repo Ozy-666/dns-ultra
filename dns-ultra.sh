@@ -25,7 +25,7 @@ set -u
 # Force C locale to ensure dig, awk, and sort output predictable English strings
 export LC_ALL=C
 
-VERSION="8.3.0"
+VERSION="8.3.1"
 
 # ============================================================================
 # COLORS  (defined first so require_bin and pre-flight checks can use them)
@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --quick           Fast benchmark (~3 min): 8 candidates, fewer rounds"
-            echo "  --parallel        Profile 2 servers simultaneously (~half the total time)"
+            echo "  --parallel [N]    Profile N servers simultaneously, default N=4 (e.g. --parallel 6)"
             echo "  -h, --help        Show this help and exit"
             echo ""
             echo "Environment variables:"
@@ -72,6 +72,10 @@ while [[ $# -gt 0 ]]; do
         --parallel)
             PARALLEL_PROFILING="true"
             shift
+            if [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "${1:-0}" -ge 2 ]; then
+                PAR_PROFILE_JOBS="$1"
+                shift
+            fi
             ;;
         *)
             echo "Unknown option: $1" >&2
@@ -173,7 +177,7 @@ PAR_BURST_JOBS="${PAR_BURST_JOBS:-3}"
 
 # Parallel Phase 2 profiling (--parallel flag)
 PARALLEL_PROFILING="${PARALLEL_PROFILING:-false}"
-PAR_PROFILE_JOBS="${PAR_PROFILE_JOBS:-2}"
+PAR_PROFILE_JOBS="${PAR_PROFILE_JOBS:-4}"
 
 # Timeouts
 PROXY_TIMEOUT_MS="${PROXY_TIMEOUT_MS:-2500}"
@@ -1013,6 +1017,40 @@ profile_one_server() {
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
 }
+
+# In parallel mode, spread same-provider servers across slots so two Quad9
+# (or two Cloudflare, etc.) nodes never run at the exact same time.
+# Round-robin merge: group by provider family, then pick one from each group.
+if [ "${PARALLEL_PROFILING}" = "true" ]; then
+    awk -F'|' '
+    function fam(name) {
+        if (name ~ /^quad9/)        return "quad9"
+        if (name ~ /^cloudflare/)   return "cloudflare"
+        if (name ~ /^google/)       return "google"
+        if (name ~ /^cs-/)          return "cs"
+        if (name ~ /^dnscry\.pt-/)  return "dnscrypt-pt"
+        if (name ~ /^dnsforfamily/) return "dnsforfamily"
+        if (name ~ /^adguard/)      return "adguard"
+        if (name ~ /^nextdns/)      return "nextdns"
+        return name
+    }
+    {
+        f = fam($2)
+        if (!(f in seen)) { seen[f]=1; order[nf++]=f }
+        bucket[f, bucket_n[f]++] = $0
+    }
+    END {
+        do {
+            more = 0
+            for (fi=0; fi<nf; fi++) {
+                f = order[fi]
+                idx = pos[f]+0
+                if (idx < bucket_n[f]) { print bucket[f,idx]; pos[f]=idx+1; more=1 }
+            }
+        } while (more)
+    }' "$BENCH_DIR/phase2_candidates.txt" > "$BENCH_DIR/phase2_candidates_spread.txt"
+    mv "$BENCH_DIR/phase2_candidates_spread.txt" "$BENCH_DIR/phase2_candidates.txt"
+fi
 
 # Load all candidates into an array so we can assign stable slot indices
 # before any background jobs start.
