@@ -1039,7 +1039,7 @@ echo "# For dnscrypt-proxy.toml"
 echo "# Public resolver upstream set; sorted by score, excluding weak reliability."
 echo "server_names = ["
 
-awk -F'|' '$5 != "weak"' "$FINAL_TXT" |
+awk -F'|' '$5 != "weak" && $32+0 <= 50' "$FINAL_TXT" |
     sort -t'|' -k32 -n |
     head -n 6 |
     while IFS='|' read -r name _; do
