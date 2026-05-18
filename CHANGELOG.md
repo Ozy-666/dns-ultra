@@ -15,6 +15,7 @@ All notable changes to dns-ultra are documented here.
 - **`measure_parallel_burst` sleep command**: DoH workers use `sleep 0.015`; DNSCrypt workers retain the original `awk`-seeded uniform jitter (0–100ms).
 
 ### Fixed
+- **Recommended config score threshold**: Config output now applies a `score ≤ 50` filter in addition to the existing reliability check. Previously, servers marked `ok` with high scores (e.g. 74.70 with R_P95=918ms, or 97.31 with F_P95=221ms) could appear in `server_names` — they are now excluded.
 - **UI bracket padding** (`[DoH      Anycast]` → `[DoH Anycast]`): Candidate list and Phase 2 profiling line now build a combined `proto+geo` tag and render it with a single tight `[%s]` specifier — no interior padding gaps.
 - **Table PROTO/GEO columns merged**: Sections 3 and 4 ranking tables replace the separate `%-8s PROTO` + `%-10s GEO` columns with a single `%-18s` combined column, eliminating dead whitespace for short protocol names (e.g. `DoH`).
 - **Unbound color variables** (`set -u` crash): Moved `COLORS` block above `require_bin` and the dnscrypt-proxy pre-flight check so `${RED}`/`${NC}` are always defined before first use.
