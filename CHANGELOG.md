@@ -2,6 +2,16 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.2.4] — 2026-05-18
+
+### Added
+- **DoH-aware adaptive pacing**: Introduced `doh_sleep()` — a high-entropy, non-linear inter-query delay function exclusive to DoH upstreams. Uses 24-bit OpenSSL CSPRNG output shaped through a `^1.7` power curve, producing a right-skewed 80–450ms delay distribution that mimics organic browser HTTPS inter-request gaps and safely evades HTTP/2 rate-limit detectors (Cloudflare DoH, Quad9, NextDNS).
+- **Per-server DoH detection**: Each server in the Phase 2 profiling loop is now classified as DoH if its protocol tag or server name contains `doh` (case-insensitive), setting an `IS_DOH` flag consumed by all downstream measurement functions.
+- **Conditional pacing throughout**: `doh_sleep` is applied in `measure_domain_set`, `measure_seq_burst`, the warmup loops, and `measure_parallel_burst` (via a new `is_doh` parameter). DNSCrypt servers bypass the new pacing entirely and continue benchmarking at maximum native speed.
+
+### Changed
+- `measure_parallel_burst` now accepts a third parameter (`is_doh`) and builds its `sh -c` sleep command conditionally, so parallel workers also use CSPRNG-seeded delays when testing DoH upstreams.
+
 ## [8.2.3] — 2026-05-18
 
 ### Added
