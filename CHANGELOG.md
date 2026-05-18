@@ -2,6 +2,15 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.3.0] — 2026-05-18
+
+### Added
+- **`--parallel` flag**: Profiles 2 servers simultaneously, cutting Phase 2 time roughly in half (tested: 3m 8s → 1m 40s on a 8-server quick run). Each worker writes results to per-server temp files (`result_N.line`, `tails_N.lines`) that are merged in slot order after all jobs finish, preserving deterministic output regardless of completion order. Combinable with `--quick`.
+- **`PAR_PROFILE_JOBS` env variable**: Controls the concurrency level for `--parallel` (default: 2). Override with `PAR_PROFILE_JOBS=3 ./dns-ultra.sh --parallel` for faster machines.
+
+### Fixed
+- **Parallel domain file collision**: `measure_domain_set` used `domain_${mode}_${domain}.txt` as an intermediate scratch file, keyed only on mode and domain name. Two parallel workers measuring the same domain wrote to the same file, corrupting per-domain n/median/p95 values in the tail offender report. Fixed by including the proxy port in the filename (`domain_${port}_${mode}_${domain}.txt`), making each worker's scratch files unique.
+
 ## [8.2.4] — 2026-05-18
 
 ### Added

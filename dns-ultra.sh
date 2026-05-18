@@ -25,7 +25,7 @@ set -u
 # Force C locale to ensure dig, awk, and sort output predictable English strings
 export LC_ALL=C
 
-VERSION="8.2.4"
+VERSION="8.3.0"
 
 # ============================================================================
 # COLORS  (defined first so require_bin and pre-flight checks can use them)
@@ -56,6 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --quick           Fast benchmark (~3 min): 8 candidates, fewer rounds"
+            echo "  --parallel        Profile 2 servers simultaneously (~half the total time)"
             echo "  -h, --help        Show this help and exit"
             echo ""
             echo "Environment variables:"
@@ -66,6 +67,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --quick)
             QUICK_MODE="true"
+            shift
+            ;;
+        --parallel)
+            PARALLEL_PROFILING="true"
             shift
             ;;
         *)
@@ -165,6 +170,10 @@ COLDSTART_SAMPLES="${COLDSTART_SAMPLES:-3}"
 SEQ_BURST_QUERIES="${SEQ_BURST_QUERIES:-35}"
 PAR_BURST_QUERIES="${PAR_BURST_QUERIES:-30}"
 PAR_BURST_JOBS="${PAR_BURST_JOBS:-3}"
+
+# Parallel Phase 2 profiling (--parallel flag)
+PARALLEL_PROFILING="${PARALLEL_PROFILING:-false}"
+PAR_PROFILE_JOBS="${PAR_PROFILE_JOBS:-2}"
 
 # Timeouts
 PROXY_TIMEOUT_MS="${PROXY_TIMEOUT_MS:-2500}"
@@ -512,7 +521,7 @@ measure_domain_set() {
     local domain domain_file q rand qtime n med p95 avg
 
     for domain in "${domains[@]}"; do
-        domain_file="$BENCH_DIR/domain_${mode}_$(safe_name "$domain").txt"
+        domain_file="$BENCH_DIR/domain_${port}_${mode}_$(safe_name "$domain").txt"
         : > "$domain_file"
 
         for _ in $(seq 1 "$rounds"); do
@@ -788,44 +797,42 @@ DOMAIN_TAILS="$RESULTS_DIR/domain_tails.txt"
 : > "$FINAL_TXT"
 : > "$DOMAIN_TAILS"
 
-COUNT=0
-FAILED_SERVERS=()
-PROFILE_START_SECS=$SECONDS
+# Profile a single server. Takes slot index (1-based) and the candidate line
+# as arguments so it can run safely as a background subshell.
+# Results are written to per-server temp files and merged after all jobs finish.
+profile_one_server() {
+    local COUNT="$1"
+    local rtt name proto
+    IFS='|' read -r rtt name proto <<< "$2"
 
-while IFS='|' read -r rtt name proto; do
-    if [ $INTERRUPTED -eq 1 ]; then break; fi
-
-    COUNT=$((COUNT + 1))
-    PORT=$((BASE_PORT + COUNT))
-    GEO="${GEO_MAP[$name]:-}"
+    local PORT=$((BASE_PORT + COUNT))
+    local GEO="${GEO_MAP[$name]:-}"
+    local SAFE
     SAFE=$(safe_name "$name")
+    local IS_DOH=0
+    [[ "${proto,,}" == *"doh"* ]] || [[ "${name,,}" == *"doh"* ]] && IS_DOH=1
 
-    IS_DOH=0
-    if [[ "${proto,,}" == *"doh"* ]] || [[ "${name,,}" == *"doh"* ]]; then
-        IS_DOH=1
-    fi
-
-    TAG="${proto}${GEO:+ $GEO}"
+    local TAG="${proto}${GEO:+ $GEO}"
     printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$TAG"
 
-    CFG="$BENCH_DIR/${SAFE}.toml"
-    LOG="$BENCH_DIR/${SAFE}.log"
+    local CFG="$BENCH_DIR/${SAFE}.toml"
+    local LOG="$BENCH_DIR/${SAFE}.log"
     write_config "$CFG" "$PORT" "$name"
 
-    # Persistent proxy for profiling — start first so fast-path can gate cold-start
+    # Persistent proxy first so fast-path can gate cold-start
     "$PROXY_BIN" -config "$CFG" > "$LOG" 2>&1 &
-    PID=$!
-    ACTIVE_PIDS+=("$PID")
+    local PID=$!
 
     if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
         echo -e "${RED}FAILED (proxy did not become ready)${NC}"
-        FAILED_SERVERS+=("$name (proxy not ready)")
+        echo "$name (proxy not ready)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
-        continue
+        return
     fi
 
-    # Warmup phase to settle TLS and DNSCrypt sessions
+    # Warmup
+    local warm_domain _
     for warm_domain in google.com cloudflare.com github.com wikipedia.org; do
         for _ in $(seq 1 2); do
             dig_query_time "$PORT" "$warm_domain" >/dev/null 2>&1 || true
@@ -837,29 +844,25 @@ while IFS='|' read -r rtt name proto; do
         [ "$IS_DOH" -eq 1 ] && doh_sleep
     done
 
-    FAST_FILE="$BENCH_DIR/${SAFE}_fast.txt"
-    FAST_DOM_REPORT="$BENCH_DIR/${SAFE}_fast_domains.txt"
+    local FAST_FILE="$BENCH_DIR/${SAFE}_fast.txt"
+    local FAST_DOM_REPORT="$BENCH_DIR/${SAFE}_fast_domains.txt"
+    local FAST_COUNTS FAST_SUCCESS FAST_TOTAL
     FAST_COUNTS=$(measure_domain_set "$PORT" "fast" "$FASTPATH_ROUNDS" "$FAST_FILE" "$FAST_DOM_REPORT" "${FASTPATH_DOMAINS[@]}")
-    FAST_SUCCESS="${FAST_COUNTS%%|*}"
-    FAST_TOTAL="${FAST_COUNTS##*|}"
-    FAST_SUCCESS="${FAST_SUCCESS:-0}"
-    FAST_TOTAL="${FAST_TOTAL:-0}"
-
-    if [ $INTERRUPTED -eq 1 ]; then break; fi
+    FAST_SUCCESS="${FAST_COUNTS%%|*}"; FAST_SUCCESS="${FAST_SUCCESS:-0}"
+    FAST_TOTAL="${FAST_COUNTS##*|}";   FAST_TOTAL="${FAST_TOTAL:-0}"
 
     if [ "$FAST_SUCCESS" -eq 0 ]; then
         echo -e "${RED}FAILED (0 fast-path successful queries)${NC}"
-        FAILED_SERVERS+=("$name (0 fast-path queries)")
+        echo "$name (0 fast-path queries)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
-        continue
+        return
     fi
 
-    # Cold-start: server is confirmed alive — measure fresh-connection latency.
-    # Each sample kills and restarts the proxy to simulate a cold boot.
-    COLD_FILE="$BENCH_DIR/${SAFE}_cold.txt"
+    # Cold-start: server confirmed alive — measure fresh-connection latency
+    local COLD_FILE="$BENCH_DIR/${SAFE}_cold.txt"
     : > "$COLD_FILE"
-    COLD_FAIL=0
+    local COLD_FAIL=0 cs COLD_PID RAND COLD_Q
 
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
@@ -867,8 +870,6 @@ while IFS='|' read -r rtt name proto; do
     for cs in $(seq 1 "$COLDSTART_SAMPLES"); do
         "$PROXY_BIN" -config "$CFG" > "$LOG.cold${cs}" 2>&1 &
         COLD_PID=$!
-        ACTIVE_PIDS+=("$COLD_PID")
-
         if wait_proxy_log_ready "$COLD_PID" "$LOG.cold${cs}" 25; then
             RAND=$(openssl rand -hex 5)
             if COLD_Q=$(dig_query_time "$PORT" "${RAND}.cloudflare.com"); then
@@ -879,84 +880,82 @@ while IFS='|' read -r rtt name proto; do
         else
             COLD_FAIL=$((COLD_FAIL + 1))
         fi
-
         kill "$COLD_PID" 2>/dev/null || true
         wait "$COLD_PID" 2>/dev/null || true
     done
 
+    local COLDSTART
     COLDSTART=$(calc_median < "$COLD_FILE")
 
-    # Restart persistent proxy for recursion and burst measurements
+    # Restart persistent proxy for recursion and burst
     "$PROXY_BIN" -config "$CFG" > "$LOG" 2>&1 &
     PID=$!
-    ACTIVE_PIDS+=("$PID")
 
     if ! wait_proxy_log_ready "$PID" "$LOG" 15; then
         echo -e "${RED}FAILED (proxy lost after cold-start)${NC}"
-        FAILED_SERVERS+=("$name (proxy lost after cold-start)")
+        echo "$name (proxy lost after cold-start)" > "$BENCH_DIR/failed_${COUNT}.txt"
         kill "$PID" 2>/dev/null || true
         wait "$PID" 2>/dev/null || true
-        continue
+        return
     fi
 
-    REC_FILE="$BENCH_DIR/${SAFE}_recursion.txt"
-    REC_DOM_REPORT="$BENCH_DIR/${SAFE}_recursion_domains.txt"
+    local REC_FILE="$BENCH_DIR/${SAFE}_recursion.txt"
+    local REC_DOM_REPORT="$BENCH_DIR/${SAFE}_recursion_domains.txt"
+    local REC_COUNTS REC_SUCCESS REC_TOTAL
     REC_COUNTS=$(measure_domain_set "$PORT" "recursion" "$RECURSION_ROUNDS" "$REC_FILE" "$REC_DOM_REPORT" "${RECURSION_BASE_DOMAINS[@]}")
-    REC_SUCCESS="${REC_COUNTS%%|*}"
-    REC_TOTAL="${REC_COUNTS##*|}"
-    REC_SUCCESS="${REC_SUCCESS:-0}"
-    REC_TOTAL="${REC_TOTAL:-0}"
+    REC_SUCCESS="${REC_COUNTS%%|*}"; REC_SUCCESS="${REC_SUCCESS:-0}"
+    REC_TOTAL="${REC_COUNTS##*|}";   REC_TOTAL="${REC_TOTAL:-0}"
 
-    if [ $INTERRUPTED -eq 1 ]; then break; fi
-
-    SEQ_BURST_FILE="$BENCH_DIR/${SAFE}_seq_burst.txt"
-    PAR_BURST_FILE="$BENCH_DIR/${SAFE}_par_burst.txt"
+    local SEQ_BURST_FILE="$BENCH_DIR/${SAFE}_seq_burst.txt"
+    local PAR_BURST_FILE="$BENCH_DIR/${SAFE}_par_burst.txt"
     measure_seq_burst "$PORT" "$SEQ_BURST_FILE"
     measure_parallel_burst "$PORT" "$PAR_BURST_FILE" "$IS_DOH"
 
-    if [ $INTERRUPTED -eq 1 ]; then break; fi
-
+    local FAST_LOSS REC_LOSS
     FAST_LOSS=$(awk -v s="$FAST_SUCCESS" -v t="$FAST_TOTAL" 'BEGIN{if(t+0==0) print "100.00"; else printf "%.2f", ((t-s)/t)*100}')
-    REC_LOSS=$(awk -v s="$REC_SUCCESS" -v t="$REC_TOTAL" 'BEGIN{if(t+0==0) print "100.00"; else printf "%.2f", ((t-s)/t)*100}')
+    REC_LOSS=$(awk -v s="$REC_SUCCESS"   -v t="$REC_TOTAL"  'BEGIN{if(t+0==0) print "100.00"; else printf "%.2f", ((t-s)/t)*100}')
 
-    FAST_N=$(calc_count < "$FAST_FILE")
+    local FAST_N FAST_MED FAST_AVG FAST_TRIM FAST_P95 FAST_P99 FAST_JIT
+    FAST_N=$(calc_count    < "$FAST_FILE")
     FAST_MED=$(calc_median < "$FAST_FILE")
-    FAST_AVG=$(calc_avg < "$FAST_FILE")
+    FAST_AVG=$(calc_avg    < "$FAST_FILE")
     FAST_TRIM=$(calc_trimmed_avg < "$FAST_FILE")
     FAST_P95=$(calc_percentile 0.95 < "$FAST_FILE")
     FAST_JIT=$(calc_stddev < "$FAST_FILE")
-
     if [ "$FAST_N" -ge 100 ]; then
         FAST_P99=$(calc_percentile 0.99 < "$FAST_FILE")
     else
         FAST_P99="NA"
     fi
 
-    REC_N=$(calc_count < "$REC_FILE")
+    local REC_N REC_MED REC_AVG REC_P95 REC_JIT
+    REC_N=$(calc_count    < "$REC_FILE")
     REC_MED=$(calc_median < "$REC_FILE")
-    REC_AVG=$(calc_avg < "$REC_FILE")
+    REC_AVG=$(calc_avg    < "$REC_FILE")
     REC_P95=$(calc_percentile 0.95 < "$REC_FILE")
     REC_JIT=$(calc_stddev < "$REC_FILE")
 
+    local SEQ_N SEQ_AVG SEQ_P95 SEQ_LOSS
     SEQ_N=$(calc_count < "$SEQ_BURST_FILE")
     SEQ_AVG=$(calc_avg < "$SEQ_BURST_FILE")
     SEQ_P95=$(calc_percentile 0.95 < "$SEQ_BURST_FILE")
     SEQ_LOSS=$(awk -v s="$SEQ_N" -v t="$SEQ_BURST_QUERIES" 'BEGIN{printf "%.2f", ((t-s)/t)*100}')
 
+    local PAR_N PAR_AVG PAR_P95 PAR_LOSS
     PAR_N=$(calc_count < "$PAR_BURST_FILE")
     PAR_AVG=$(calc_avg < "$PAR_BURST_FILE")
     PAR_P95=$(calc_percentile 0.95 < "$PAR_BURST_FILE")
     PAR_LOSS=$(awk -v s="$PAR_N" -v t="$PAR_BURST_QUERIES" 'BEGIN{printf "%.2f", ((t-s)/t)*100}')
 
+    local SCORE_PARTS SCORE SCORE_FAST SCORE_REC SCORE_BURST SCORE_COLD
     SCORE_PARTS=$(score_server "$FAST_MED" "$FAST_P95" "$FAST_JIT" "$FAST_LOSS" "$REC_MED" "$REC_P95" "$REC_LOSS" "$SEQ_P95" "$PAR_P95" "$COLDSTART")
-    SCORE=$(printf "%s" "$SCORE_PARTS" | cut -d'|' -f1)
-    SCORE_FAST=$(printf "%s" "$SCORE_PARTS" | cut -d'|' -f2)
-    SCORE_REC=$(printf "%s" "$SCORE_PARTS" | cut -d'|' -f3)
+    SCORE=$(      printf "%s" "$SCORE_PARTS" | cut -d'|' -f1)
+    SCORE_FAST=$( printf "%s" "$SCORE_PARTS" | cut -d'|' -f2)
+    SCORE_REC=$(  printf "%s" "$SCORE_PARTS" | cut -d'|' -f3)
     SCORE_BURST=$(printf "%s" "$SCORE_PARTS" | cut -d'|' -f4)
-    SCORE_COLD=$(printf "%s" "$SCORE_PARTS" | cut -d'|' -f5)
+    SCORE_COLD=$( printf "%s" "$SCORE_PARTS" | cut -d'|' -f5)
 
-    RELIABILITY="ok"
-    # Safe awk checks preventing syntax errors on empty variables
+    local RELIABILITY="ok"
     if awk -v fl="${FAST_LOSS:-0}" -v rl="${REC_LOSS:-0}" -v pl="${PAR_LOSS:-0}" 'BEGIN{exit !((fl > 1.0) || (rl > 5.0) || (pl > 5.0))}'; then
         RELIABILITY="watch"
     fi
@@ -964,6 +963,7 @@ while IFS='|' read -r rtt name proto; do
         RELIABILITY="weak"
     fi
 
+    # Write result line to per-server temp file (merged into FINAL_TXT after all jobs)
     printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n" \
         "$name" "$rtt" "$proto" "$GEO" "$RELIABILITY" \
         "$COLDSTART" "$COLD_FAIL" \
@@ -971,15 +971,20 @@ while IFS='|' read -r rtt name proto; do
         "$REC_N" "$REC_MED" "$REC_AVG" "$REC_P95" "$REC_JIT" "$REC_LOSS" \
         "$SEQ_AVG" "$SEQ_P95" "$SEQ_LOSS" \
         "$PAR_AVG" "$PAR_P95" "$PAR_LOSS" \
-        "$SCORE_FAST" "$SCORE_REC" "$SCORE_BURST" "$SCORE_COLD" "$SCORE" >> "$FINAL_TXT"
+        "$SCORE_FAST" "$SCORE_REC" "$SCORE_BURST" "$SCORE_COLD" "$SCORE" \
+        > "$BENCH_DIR/result_${COUNT}.line"
 
-    sort -t'|' -k5 -nr "$FAST_DOM_REPORT" | head -n 4 | while IFS='|' read -r d n med avg p95; do
-        printf "%s|fast|%s|%s|%s|%s|%s\n" "$name" "$d" "$n" "$med" "$avg" "$p95" >> "$DOMAIN_TAILS"
-    done
-    sort -t'|' -k5 -nr "$REC_DOM_REPORT" | head -n 4 | while IFS='|' read -r d n med avg p95; do
-        printf "%s|recursion|%s|%s|%s|%s|%s\n" "$name" "$d" "$n" "$med" "$avg" "$p95" >> "$DOMAIN_TAILS"
-    done
+    # Domain tails temp file
+    {
+        sort -t'|' -k5 -nr "$FAST_DOM_REPORT" | head -n 4 | while IFS='|' read -r d n med avg p95; do
+            printf "%s|fast|%s|%s|%s|%s|%s\n" "$name" "$d" "$n" "$med" "$avg" "$p95"
+        done
+        sort -t'|' -k5 -nr "$REC_DOM_REPORT" | head -n 4 | while IFS='|' read -r d n med avg p95; do
+            printf "%s|recursion|%s|%s|%s|%s|%s\n" "$name" "$d" "$n" "$med" "$avg" "$p95"
+        done
+    } > "$BENCH_DIR/tails_${COUNT}.lines"
 
+    local SCORE_COLOR
     if awk -v s="$SCORE" 'BEGIN{exit !(s+0 < 20)}'; then
         SCORE_COLOR=$GREEN
     elif awk -v s="$SCORE" 'BEGIN{exit !(s+0 <= 50)}'; then
@@ -988,15 +993,16 @@ while IFS='|' read -r rtt name proto; do
         SCORE_COLOR=$RED
     fi
 
-    COLD_NOTE=""
+    local COLD_NOTE=""
     [ "$COLD_FAIL" -ge "$COLDSTART_SAMPLES" ] && COLD_NOTE=" ${DIM}(cold: cert-fail)${NC}"
 
-    ETA_STR=""
-    if [ "$COUNT" -gt 1 ]; then
-        _elapsed=$(( SECONDS - PROFILE_START_SECS ))
-        _avg=$(( _elapsed / COUNT ))
-        _rem=$(( _avg * (CANDIDATE_COUNT - COUNT) ))
-        _rem_min=$(( _rem / 60 ))
+    # ETA only in sequential mode (parallel completions are out of order)
+    local ETA_STR=""
+    if [ "${PARALLEL_PROFILING}" != "true" ] && [ "$COUNT" -gt 1 ]; then
+        local _elapsed=$(( SECONDS - PROFILE_START_SECS ))
+        local _avg=$(( _elapsed / COUNT ))
+        local _rem=$(( _avg * (CANDIDATE_COUNT - COUNT) ))
+        local _rem_min=$(( _rem / 60 ))
         [ "$_rem_min" -gt 0 ] && ETA_STR=" ${DIM}~${_rem_min}m left${NC}"
     fi
 
@@ -1006,7 +1012,42 @@ while IFS='|' read -r rtt name proto; do
 
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
-done < "$BENCH_DIR/phase2_candidates.txt"
+}
+
+# Load all candidates into an array so we can assign stable slot indices
+# before any background jobs start.
+mapfile -t _CAND_LINES < "$BENCH_DIR/phase2_candidates.txt"
+FAILED_SERVERS=()
+PROFILE_START_SECS=$SECONDS
+
+if [ "${PARALLEL_PROFILING}" = "true" ]; then
+    echo -e "      ${DIM}Parallel mode: ${PAR_PROFILE_JOBS} servers at a time${NC}"
+    echo ""
+    _running=0
+    for _i in "${!_CAND_LINES[@]}"; do
+        [ $INTERRUPTED -eq 1 ] && break
+        profile_one_server "$((_i + 1))" "${_CAND_LINES[$_i]}" &
+        _running=$((_running + 1))
+        if [ "$_running" -ge "$PAR_PROFILE_JOBS" ]; then
+            wait -n 2>/dev/null || wait
+            _running=$((_running - 1))
+        fi
+    done
+    wait
+else
+    for _i in "${!_CAND_LINES[@]}"; do
+        [ $INTERRUPTED -eq 1 ] && break
+        profile_one_server "$((_i + 1))" "${_CAND_LINES[$_i]}"
+    done
+fi
+
+# Merge per-server temp files into FINAL_TXT and DOMAIN_TAILS in slot order
+for _i in "${!_CAND_LINES[@]}"; do
+    _idx=$((_i + 1))
+    [ -f "$BENCH_DIR/result_${_idx}.line"  ] && cat "$BENCH_DIR/result_${_idx}.line"  >> "$FINAL_TXT"
+    [ -f "$BENCH_DIR/tails_${_idx}.lines"  ] && cat "$BENCH_DIR/tails_${_idx}.lines"  >> "$DOMAIN_TAILS"
+    [ -f "$BENCH_DIR/failed_${_idx}.txt"   ] && FAILED_SERVERS+=("$(cat "$BENCH_DIR/failed_${_idx}.txt")")
+done
 
 if [ ${#FAILED_SERVERS[@]} -gt 0 ]; then
     echo ""
