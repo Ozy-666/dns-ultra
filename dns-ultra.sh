@@ -173,8 +173,13 @@ DIG_TIMEOUT_SEC="${DIG_TIMEOUT_SEC:-4}"
 # Keep false if an external caching layer (Unbound) sits above dnscrypt-proxy
 DNSCRYPT_CACHE="${DNSCRYPT_CACHE:-false}"
 
-# Providers worth testing even if their discovery RTT is not top-N
+# Providers worth testing even if their discovery RTT is not top-N.
+# These are always profiled when found during discovery, even if they don't
+# make the top-N RTT cut. Cloudflare and Google are pinned because they are
+# the most widely used public resolvers and make a useful baseline reference.
 PINNED_SERVERS=(
+    "cloudflare"
+    "google"
     "nic.cz"
 )
 
