@@ -411,7 +411,7 @@ geo_build_map() {
         /^## / {
             if (name != "") print name "|" location
             name = substr($0, 4)
-            location = "?"
+            location = ""
 
             if (match(name, /^dnscry\.pt-[a-z0-9]+/)) {
                 chunk = substr(name, 11, RLENGTH-10)
@@ -727,7 +727,7 @@ echo -e "${CYAN}      Phase 2 candidates:${NC} $CANDIDATE_COUNT (${TOP_PHASE2} R
 echo ""
 
 while IFS='|' read -r rtt name proto; do
-    geo="${GEO_MAP[$name]:-?}"
+    geo="${GEO_MAP[$name]:-}"
     printf "      ${GREEN}%4sms${NC}  %-42s ${DIM}[%-8s %s]${NC}\n" "$rtt" "$name" "$proto" "$geo"
 done < <(head -n "$CANDIDATE_COUNT" "$BENCH_DIR/phase2_candidates.txt")
 echo ""
@@ -754,7 +754,7 @@ while IFS='|' read -r rtt name proto; do
 
     COUNT=$((COUNT + 1))
     PORT=$((BASE_PORT + COUNT))
-    GEO="${GEO_MAP[$name]:-?}"
+    GEO="${GEO_MAP[$name]:-}"
     SAFE=$(safe_name "$name")
 
     printf "      Profiling [%2d/%d] %-42s ${DIM}[%s]${NC} " "$COUNT" "$CANDIDATE_COUNT" "$name" "$GEO"
