@@ -8,6 +8,10 @@
 
 `dns-ultra` measures DNS resolvers the way your real stack uses them. It separates **fast-path latency** (steady-state cached lookups, which is what your users actually experience) from **recursion-tail latency** (uncached authoritative walks, which a local cache layer absorbs anyway). It does not punish good anycast resolvers like Cloudflare or Quad9 because of one packet of noise.
 
+<p align="center">
+  <img src="images/screenshot.png" width="880" alt="dns-ultra terminal output">
+</p>
+
 ## Why this exists
 
 Most DNS benchmarks rank resolvers using a single mixed score: a few quick queries, an authoritative walk or two, average everything. This produces broken results — a couple of uncached `random.kernel.org` probes can dominate the median, and `loss × 18` makes one dropped packet outweigh several milliseconds of real latency.
@@ -32,6 +36,7 @@ client → AdGuardHome → Unbound (cache) → dnscrypt-proxy → upstream
 If your stack already has a caching layer, you don't need a fast recursion tail — you need a consistent, low-loss, low-jitter upstream for cache misses. That's what this benchmark optimizes for.
 
 If you have **no upstream cache** (e.g., dnscrypt-proxy is your only resolver), set `DNSCRYPT_CACHE=true` and `cache = true` in the recommended config. The score weights still apply, but you should give more weight to recursion when interpreting results.
+
 
 ## Installation & Quick Start
 
@@ -125,11 +130,6 @@ If you see Quad9-DoH flagged as `weak` due to packet loss, that's separate — Q
 |---|---|
 | `dns-benchmark-results-v8.json` | All metrics per server, sorted by score |
 | `dns-benchmark-domain-tails-v8.json` | Per-domain breakdown showing which names hurt P95 |
-
-## Example output
-<p align="center">
-  <img src="images/screenshot.png" width="880" alt="dns-ultra terminal output">
-</p>
 ```
 
 ## Recommended dnscrypt-proxy config block
