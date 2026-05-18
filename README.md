@@ -33,18 +33,23 @@ If your stack already has a caching layer, you don't need a fast recursion tail 
 
 If you have **no upstream cache** (e.g., dnscrypt-proxy is your only resolver), set `DNSCRYPT_CACHE=true` and `cache = true` in the recommended config. The score weights still apply, but you should give more weight to recursion when interpreting results.
 
-## Quick start
+## Installation & Quick Start
+
+**Prerequisite:** You must have `dnscrypt-proxy` (v2.1.0+) installed. 
+The script features **smart auto-detection** — it will automatically scan your standard `$PATH` and common manual deployment directories (like portable archive folders in `/opt/` or `/usr/local/bin/`). 
+
+If you use a non-standard custom path, you can explicitly force it via an environment variable: `PROXY_BIN=/path/to/dnscrypt-proxy ./dns-ultra.sh`.
 
 ```bash
-# Standard 12-15 minute benchmark
+# 1. Clone the repository
+git clone [https://github.com/Ozy-666/dns-ultra.git](https://github.com/Ozy-666/dns-ultra.git)
+cd dns-ultra
+
+# 2. Make the benchmark executable
+chmod +x dns-ultra.sh
+
+# 3. Run the standard benchmark (takes ~12-15 minutes)
 ./dns-ultra.sh
-
-# Quick 3-minute scan for iterating
-./dns-ultra.sh --quick
-
-# Show only top 5 in the report
-./dns-ultra.sh --top 5
-```
 
 ## Requirements
 

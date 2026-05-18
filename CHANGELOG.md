@@ -2,6 +2,13 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.2.3] — 2026-05-18
+
+### Added
+- **Smart Binary Auto-Detection**: Added robust path discovery that scans both system `$PATH` and manual/portable installation structures (such as official unpacked release folders like `/opt/dnscrypt-proxy/linux-x86_64/`).
+- **Pre-flight Health Check**: Implemented strict validation that tests the discovered binary for existence and execution permissions before spawning background processes, avoiding silent logging failures.
+
+
 ## [8.2.1] — 2026-05-17
 
 ### Methodology overhaul (the honest version)

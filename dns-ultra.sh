@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
-            echo "DNSCRYPT ULTRA-BENCH v8.2.1 — Public Resolver Upstream Profiler"
+            echo "DNSCRYPT ULTRA-BENCH — Public Resolver Upstream Profiler"
             echo ""
             echo "Options:"
             echo "  --quick           Fast benchmark (~3 min): 8 candidates, fewer rounds"
@@ -76,7 +76,60 @@ fi
 # CONFIGURATION
 # ============================================================================
 
-PROXY_BIN="${PROXY_BIN:-/opt/dnscrypt2.1.5/dnscrypt-proxy}"
+# ============================================================================
+# REQUIREMENTS
+# ============================================================================
+
+require_bin() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo -e "${RED}Missing dependency:${NC} $1"
+        exit 1
+    }
+}
+
+require_bin dig
+require_bin awk
+require_bin sort
+require_bin sed
+require_bin grep
+require_bin openssl
+require_bin jq
+require_bin xargs
+
+# --- AUTO-DETECT DNSCRYPT-PROXY ---
+if [ -z "${PROXY_BIN:-}" ]; then
+    # Check if it's in standard PATH
+    if command -v dnscrypt-proxy >/dev/null 2>&1; then
+        PROXY_BIN="$(command -v dnscrypt-proxy)"
+    else
+        # Scan common manual installation paths
+        COMMON_PATHS=(
+            "/opt/dnscrypt2.1.5/dnscrypt-proxy"
+            "/opt/dnscrypt2.1.15/dnscrypt-proxy"
+            "/opt/dnscrypt-proxy/linux-x86_64/dnscrypt-proxy"
+            "/opt/dnscrypt-proxy/linux-arm64/dnscrypt-proxy"
+            "/opt/dnscrypt-proxy/dnscrypt-proxy"
+            "/opt/linux-x86_64/dnscrypt-proxy"
+            "/usr/local/bin/dnscrypt-proxy"
+            "/usr/bin/dnscrypt-proxy"
+            "/bin/dnscrypt-proxy"
+        )
+        for p in "${COMMON_PATHS[@]}"; do
+            if [ -x "$p" ]; then
+                PROXY_BIN="$p"
+                break
+            fi
+        done
+    fi
+fi
+
+# Final check
+if [ -z "${PROXY_BIN:-}" ] || [ ! -x "$PROXY_BIN" ]; then
+    echo -e "${RED}ERROR: dnscrypt-proxy binary not found.${NC}"
+    echo "Auto-detection failed. Please set PROXY_BIN explicitly:"
+    echo "  PROXY_BIN=/path/to/dnscrypt-proxy ./dns-ultra.sh"
+    exit 1
+fi
 
 LISTEN_IP="${LISTEN_IP:-127.0.0.1}"
 BASE_PORT="${BASE_PORT:-55000}"
@@ -161,31 +214,6 @@ WHITE='\033[1;37m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# ============================================================================
-# REQUIREMENTS
-# ============================================================================
-
-require_bin() {
-    command -v "$1" >/dev/null 2>&1 || {
-        echo -e "${RED}Missing dependency:${NC} $1"
-        exit 1
-    }
-}
-
-require_bin dig
-require_bin awk
-require_bin sort
-require_bin sed
-require_bin grep
-require_bin openssl
-require_bin jq
-require_bin xargs
-
-if [ ! -x "$PROXY_BIN" ]; then
-    echo -e "${RED}dnscrypt-proxy not found:${NC} $PROXY_BIN"
-    echo "Set PROXY_BIN=/path/to/dnscrypt-proxy and run again."
-    exit 1
-fi
 
 # ============================================================================
 # TEMPORARY DIRECTORY & CLEANUP
@@ -535,7 +563,7 @@ measure_parallel_burst() {
 }
 
 # ============================================================================
-# SCORING FORMULA (v8.2 Unbound Cache-Aware)
+# SCORING FORMULA (Unbound Cache-Aware)
 # ============================================================================
 score_server() {
     local fast_med="$1"
@@ -593,7 +621,7 @@ score_server() {
 
 echo ""
 echo -e "${WHITE}============================================================================${NC}"
-echo -e "${WHITE}        DNSCRYPT ULTRA-BENCH v8.2.1 — Public Resolver Upstream Profiler${NC}"
+echo -e "${WHITE}        DNSCRYPT ULTRA-BENCH  Public Resolver Upstream Profiler${NC}"
 echo -e "${WHITE}============================================================================${NC}"
 echo ""
 echo -e "${CYAN}Target stack:${NC} AdGuardHome -> Unbound(cache) -> dnscrypt-proxy"
@@ -1059,7 +1087,7 @@ echo -e "  ${DIM}Finished:${NC} $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo -e "  ${DIM}Results:${NC}   ./${OUTPUT_JSON}"
 echo -e "  ${DIM}Domain tails:${NC} ./${DOMAIN_JSON}"
 echo ""
-echo -e "${CYAN}Score weights (v8.2 Unbound Cache-Aware):${NC}"
+echo -e "${CYAN}Score weights (Unbound Cache-Aware):${NC}"
 echo "  Fast path = median*0.30 + p95*0.25 + jitter*0.30 + loss%^2*3"
 echo "  Recursion = (median*0.10 + p95*0.12 + loss%*10) * 0.25"
 echo "  Burst     = seq_p95*0.030 + parallel_p95*0.010"
@@ -1068,7 +1096,7 @@ echo ""
 echo -e "${CYAN}Note on DNSSEC Resolvers (e.g., Quad9):${NC}"
 echo "  Strict DNSSEC resolvers naturally show higher P95 on Recursion tests"
 echo "  due to NSEC validation on NXDOMAIN responses. This is a security feature."
-echo "  The v8.2 scoring accounts for this by heavily down-weighting Recursion,"
+echo "  The dns-ultra scoring accounts for this by heavily down-weighting Recursion,"
 echo "  ensuring secure resolvers are not penalized in the final ranking."
 echo ""
 echo -e "${DIM}Tip: Prefer stable low-loss upstreams over tiny median wins.${NC}"
