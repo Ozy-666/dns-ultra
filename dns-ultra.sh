@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Ozy-666 (https://dnsdoh.art)
 # ============================================================================
 # dns-ultra.sh — Upstream Resolver Profiler for AGH -> Unbound -> dnscrypt-proxy
 # ============================================================================
