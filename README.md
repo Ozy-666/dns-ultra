@@ -51,7 +51,7 @@ Most DNS benchmark tools make a fundamental methodological mistake: they mix cac
 * **Jitter-Dominant Scoring:** Prioritizes latency consistency over absolute peak speed. A stable resolver that always answers in 8ms easily beats a erratic node alternating between 3ms and 40ms.
 * **Ethical Query Pacing:** Applies intelligent packet pacing (15ms for DoH, 50–150ms randomized windows for DNSCrypt) to guarantee the benchmark doesn't accidentally trigger security rate-limits or yield false failures.
 * **Protocol Auto-Detection:** Dynamically senses whether a server target utilizes DoH (DNS over HTTPS) or DNSCrypt, automatically adjusting underlying test parameters.
-* **Baseline Pinning:** Explicitly locks known-good public operators (Cloudflare, Google) so they always appear in final tables as an objective reference, even if local routing anomalies kept them out of top-N speed categories.
+* **Baseline Pinning:** Explicitly locks known-good public operators (Cloudflare, Google, Quad9 DNSCrypt) so they always appear in final tables as an objective reference, even if local routing anomalies kept them out of top-N speed categories.
 * **Smart Filtering:** Permanently filters out problematic transport layouts, such as Quad9 DoH nodes (see analysis below), protecting your upstream configuration from unstable routing paths.
 
 ---
@@ -181,11 +181,20 @@ total score = fast-path + recursion + burst + cold-start
 
 Extensive production testing from a headless VPS infrastructure node in Finland exposed profound behavioral deltas between different cryptographic transport protocols operating over the exact same anycast destination networks.
 
-| Server | Protocol | Packet loss | Score |
-| :--- | :--- | :--- | :--- |
-| `quad9-dnscrypt-ip4-nofilter-pri` | DNSCrypt | **0.00%** | 14.20 |
-| `quad9-doh-ip4-port443-nofilter-pri` | DoH | **4–6%** | 91.63 |
-| `cloudflare` | DoH | **0.00%** | 6.88 |
+| Server | Protocol | Packet loss | Median | P95 |
+| :--- | :--- | :--- | :--- | :--- |
+| `quad9-dnscrypt-ip4-nofilter-pri` | DNSCrypt | **0.00%** (0/1200) | 6 ms | 7 ms |
+| `quad9-doh-ip4-port443-nofilter-pri` | DoH | **1.83%** (22/1200) | 6 ms | 7 ms |
+| `cloudflare` | DoH | **0.00%** | 2 ms | 4 ms |
+
+Re-measured 2026-08-01: 1200 sequential queries per protocol, same host, same
+link, run back to back. The Quad9 DoH loss rate has improved substantially from
+the 4–6% first recorded, but it has not reached zero, and the DNSCrypt endpoints
+on the same network still lose nothing at all.
+
+Note that **latency is identical** between the two Quad9 transports — 6 ms
+median, 7 ms p95 for both. This is purely a delivery-reliability difference, not
+a speed one. Quad9 is a fast resolver on either transport.
 
 Notice the critical variance: The underlying network route, source host, and data target infrastructure remain perfectly identical. The singular variable modified is transport protocol.
 
@@ -194,7 +203,7 @@ Notice the critical variance: The underlying network route, source host, and dat
 * **DNSCrypt** processes transactions via completely independent, stateless encrypted UDP structures. There are no long-lived underlying connection sessions to log, monitor, or throttle. As a direct result, Quad9's active edge defenses are never tripped, allowing their core platform to process massive query loads with a **perfect 0.00% drop rate**.
 
 ### What this means for your network:
-Running Quad9 via the DNSCrypt transport layout delivers premium end-to-end privacy, native DNSSEC cryptographic validation, and flawless 0% packet delivery. Attempting to force Quad9 traffic via DoH in heavy multi-user environments can result in up to 1 out of every 20 queries being dropped during active use.
+Running Quad9 over DNSCrypt delivers premium end-to-end privacy, native DNSSEC validation, and a flawless 0% drop rate. Forcing the same traffic over DoH currently costs roughly 1 dropped query in every 55 (1.83%, re-measured 2026-08-01; it was nearer 1 in 20 when first tested). Since both transports answer equally fast, there is no speed argument for accepting that loss.
 
 ### Why Quad9 DoH is permanently excluded
 To safeguard your target systems, the automated discovery process explicitly filters out all string targets matching `quad9-doh-*`. This structural blocker ensures an ephemeral fast anycast ping during initial discovery cannot accidentally slip an unstable, rate-limited DoH endpoint into your production routing configuration.
@@ -255,7 +264,7 @@ Community enhancements, bug reports, and optimizations are welcome. Core develop
 This project follows a human-driven architecture approach with AI-assisted implementation. I do not write native code; I engineer the systems, the logic, and the validation methodology.
 
 The production syntax, scoring weights, and edge-case handling were refined through iterative collaboration with multiple AI models:
-* **Anthropic Claude (Opus 4.7 / Sonnet 4.6)** — primary architect for methodology fixes, code review, and statistical reasoning.
+* **Anthropic Claude (Opus 5, Opus 4.7 / Sonnet 4.6)** — primary architect for methodology fixes, code review, and statistical reasoning. Opus 5 did the v8.4.0 field test: root-caused the warm-up gap, measured authoritative latency and Quad9 packet loss, and re-verified the exclusions against fresh data.
 * **Google Gemini** — secondary review and refactoring assistance.
 * **OpenAI ChatGPT / Codex** — early prototyping and bash idiom checks.
 

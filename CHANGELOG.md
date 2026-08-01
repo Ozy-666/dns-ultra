@@ -2,6 +2,25 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.5.0] — 2026-08-01
+
+### Added
+- **Quad9 DNSCrypt pinned as a baseline resolver.** `quad9-dnscrypt-ip4-nofilter-pri` joins Cloudflare and Google in `PINNED_SERVERS`, so Quad9 now appears in every run rather than depending on where it lands in the discovery RTT cut. It earns the slot: measured at 0.00% loss, 6 ms median, 7 ms p95, scoring 6.76–8.28 across its variants and ranking mid-table against the fastest resolvers available.
+
+### Changed
+- **Quad9 DoH exclusion re-verified rather than assumed.** The `DISABLED_SERVERS` rationale cited 4–6% packet loss recorded at some earlier date. Re-measured 2026-08-01 with 1200 sequential queries per protocol, same host, same link, back to back:
+
+  | endpoint | loss | median | p95 |
+  |---|---|---|---|
+  | `quad9-dnscrypt-ip4-nofilter-pri` | **0.00%** (0/1200) | 6 ms | 7 ms |
+  | `quad9-doh-ip4-port443-nofilter-pri` | **1.83%** (22/1200) | 6 ms | 7 ms |
+
+  The loss has improved substantially but is still not zero, while DNSCrypt on the same network loses nothing at all, so the exclusion stands. Latency is identical between the two transports, so this is purely a delivery-reliability difference — Quad9 is fast either way. The in-script comment and the README table now carry the current numbers instead of the old ones.
+
+### Documentation
+- Screenshot regenerated from a run with Quad9 pinned, so the image shows it in both the ranking table and the recommended config.
+- README credits Anthropic Claude Opus 5 for the v8.4.0 field test.
+
 ## [8.4.0] — 2026-08-01
 
 Field-tested on a live edge resolver. Two of the three findings below changed

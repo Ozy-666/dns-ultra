@@ -27,7 +27,7 @@ set -u
 # Force C locale to ensure dig, awk, and sort output predictable English strings
 export LC_ALL=C
 
-VERSION="8.4.0"
+VERSION="8.5.0"
 
 # ============================================================================
 # COLORS  (defined first so require_bin and pre-flight checks can use them)
@@ -196,15 +196,27 @@ DNSCRYPT_CACHE="${DNSCRYPT_CACHE:-false}"
 PINNED_SERVERS=(
     "cloudflare"
     "google"
+    "quad9-dnscrypt-ip4-nofilter-pri"
     "nic.cz"
 )
 
 # Servers permanently excluded from every spawned dnscrypt-proxy instance.
-# Quad9 DoH servers are excluded because real-world testing from VPS nodes shows
-# 4–6% sustained packet loss on their DoH stack under normal sequential query load,
-# while the identical Quad9 DNSCrypt servers show 0.00% loss on the same network.
-# The cause is Quad9's DoH edge applying per-session HTTP/2 stream limits that
-# DNSCrypt (stateless UDP) is simply not subject to. Use Quad9 DNSCrypt instead.
+#
+# Quad9 DoH only. Quad9 DNSCrypt is NOT excluded and is in fact pinned above:
+# it is a fast, consistent resolver and belongs in every run.
+#
+# Re-measured 2026-08-01 from a European VPS, 1200 sequential queries per
+# protocol at this tool's DoH pacing, same host, same link, back to back:
+#
+#     quad9-doh-ip4-port443-nofilter-pri     22/1200 lost   1.83%
+#     quad9-dnscrypt-ip4-nofilter-pri         0/1200 lost   0.00%
+#
+# Latency is identical between the two (median 6ms, p95 7ms), so this is purely
+# a delivery-reliability difference. The loss has improved substantially from
+# the 4-6% first recorded, but it is still not zero while the DNSCrypt endpoints
+# on the same network lose nothing at all, so the exclusion stands. The cause is
+# Quad9's DoH edge applying per-session HTTP/2 stream limits that stateless
+# DNSCrypt/UDP is not subject to. Use Quad9 DNSCrypt instead.
 DISABLED_SERVERS=(
     "quad9-doh-ip4-port443-nofilter-pri"
     "quad9-doh-ip4-port443-nofilter-ecs-pri"
