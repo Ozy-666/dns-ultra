@@ -26,6 +26,17 @@ The script thoroughly tests four dimensions per resolver:
 
 The final score is heavily weighted toward the **fast-path and consistency**, optimizing performance specifically for architectures with a local caching tier (like Unbound or AdGuardHome) sitting in front of `dnscrypt-proxy`.
 
+### Which domains get queried, and why it matters
+
+Every test domain is served by a hyperscale or CDN anycast DNS platform — Cloudflare, Google, AWS, Meta, NS1, Azure, Akamai, Fastly, Automattic — and the list is spread across those providers so a score is never just a measure of one provider's cache.
+
+That is a deliberate constraint, for two reasons:
+
+* **Load.** A benchmark should not aim repeated traffic at small or volunteer-run operators. This matters most for the Recursion and Burst profiles, which query random subdomains that can never be cached, so every single one reaches the authoritative servers.
+* **Accuracy.** A domain whose own nameservers are slow poisons the measurement the moment a query misses cache. Measured from a European VPS, straight to the authoritative NS: `iana.org` answers in ~110 ms and `wikipedia.org` in ~150 ms, against ~0–10 ms for the operators above. One such miss drops a >100 ms outlier into a sample set whose real values are single-digit milliseconds — and with a small round count, that outlier *becomes* the p95. Before v8.4.0 this was skewing real rankings; see the changelog.
+
+Fast-path domains are warmed before measurement so they are genuine cache hits. Recursion deliberately does the opposite.
+
 ---
 
 ## Why this exists

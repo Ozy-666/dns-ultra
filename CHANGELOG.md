@@ -2,6 +2,22 @@
 
 All notable changes to dns-ultra are documented here.
 
+## [8.4.0] — 2026-08-01
+
+Field-tested on a live edge resolver. Two of the three findings below changed
+the rankings materially, so scores from 8.4.0 are **not comparable** with
+earlier versions.
+
+### Fixed
+- **Warm-up covered 4 of the 15 fast-path domains, so 11 were measured cold.** The fast-path profile is defined as "fixed domains after warm-up" — the cache-hit path — but warm-up looped over a hardcoded `google.com cloudflare.com github.com wikipedia.org` while `FASTPATH_DOMAINS` held fifteen. Every unwarmed domain contributed a cold miss as its first sample, and a cold miss costs whatever that domain's authoritative servers cost, not what the resolver costs. At `FASTPATH_ROUNDS=3` the p95 *is* that single cold sample. Measured from a European VPS straight to the authoritative NS: `iana.org` 107–113 ms, `wikipedia.org` 141–159 ms, against `google.com` 7–8 ms and `cloudflare.com` 0–1 ms. This is why `iana.org` appeared as a tail offender for five of eight resolvers and never below 117 ms for any of them. Effect on `quad9-dnscrypt-ip4-nofilter-ecs-pri`: fast p95 **214 ms → 30 ms**, score **83.90 → 22.74**, last place → mid-table. Quad9 was never slow and was not rate-limiting the benchmark — verified separately at 400 queries over 31.6 s, mean 6.5 ms, max 11 ms, zero loss. The README already warned that uncached authoritative walks "can heavily skew metrics, making a reliable, high-performance anycast network like Cloudflare or Quad9 look worse"; the warm-up gap was reintroducing exactly that.
+- **`odoh_servers = false` made the profiler unusable on ODoH-less builds.** dnscrypt-proxy rejects unknown configuration keys outright (`[FATAL] Unsupported key in configuration file`), so on any build compiled without ODoH the proxy never started and the run aborted before its first query. The key is a plain bool, so a build that supports it already defaults to `false` when it is absent — writing it explicitly bought nothing. Dropping it is behaviour-preserving on stock dnscrypt-proxy and fixes ODoH-less builds; verified both ways against a signature-checked upstream 2.1.18 release.
+
+### Changed
+- **Test domains are now exclusively hyperscale/CDN anycast operators.** `FASTPATH_DOMAINS` previously included regional sites and two nonprofits (`delfi.lv`, `ss.com`, `habr.com`, `yandex.ru`, `iana.org`, `wikipedia.org`, `kernel.org`, `ietf.org`, `telegram.org`). Aiming repeated benchmark traffic at small or volunteer-run operators is the same thing `RECURSION_BASE_DOMAINS` already refused to do, and the two nonprofits were the slowest nameservers measured, so they were also the worst choice for accuracy. The new list spans Cloudflare, Google, AWS, Meta, NS1, Azure, Akamai, Fastly and Automattic, so the score is not a measure of one provider's cache.
+- **`wikipedia.org` removed from `RECURSION_BASE_DOMAINS` and `BURST_BASE_DOMAINS`.** Those profiles send random subdomains that can never be cached, so every query is a real lookup against Wikimedia's nameservers — the slowest in the set at ~150 ms, and a nonprofit. Replaced with `facebook.com`.
+- **Warm-up is paced like the measurement loop.** It now issues roughly 4× the queries it used to, so it uses the same `random_sleep` / `doh_sleep` selector instead of firing back to back.
+- **`--help` no longer advertises a dead `PROXY_BIN` default.** It claimed `/opt/dnscrypt2.1.5/dnscrypt-proxy`, a long-gone install path. Auto-detection has always searched `PATH` first and then a list of common prefixes; only the help text was wrong, but it sent anyone debugging a start-up failure to the wrong place.
+
 ## [8.3.1] — 2026-05-19
 
 ### Changed

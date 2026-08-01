@@ -27,7 +27,7 @@ set -u
 # Force C locale to ensure dig, awk, and sort output predictable English strings
 export LC_ALL=C
 
-VERSION="8.3.1"
+VERSION="8.4.0"
 
 # ============================================================================
 # COLORS  (defined first so require_bin and pre-flight checks can use them)
