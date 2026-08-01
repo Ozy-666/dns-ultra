@@ -256,7 +256,12 @@ If you find a bug, the responsibility is mine. If you find a clean idiom, credit
 
 ## License
 
-This software is released under the **MIT License**. Check the included `LICENSE` file for full parameters.
+© 2026 Ozy-666 (<https://dnsdoh.art>), released under the **MIT License** — see
+[`LICENSE`](LICENSE) for the full terms.
+
+No third-party code is bundled here. The public resolver database is fetched from
+[DNSCrypt/dnscrypt-resolvers](https://github.com/DNSCrypt/dnscrypt-resolvers) when the
+script runs, rather than vendored into this repository.
 
 ---
 
