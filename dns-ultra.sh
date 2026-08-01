@@ -62,7 +62,8 @@ while [[ $# -gt 0 ]]; do
             echo "  -h, --help        Show this help and exit"
             echo ""
             echo "Environment variables:"
-            echo "  PROXY_BIN         Path to dnscrypt-proxy (default: /opt/dnscrypt2.1.5/dnscrypt-proxy)"
+            echo "  PROXY_BIN         Path to dnscrypt-proxy (default: auto-detected from PATH,"
+            echo "                    then common install prefixes under /opt and /usr)"
             echo "  TOP_PHASE2        Number of RTT-top servers to profile (default: 24, quick: 8)"
             echo "  DNSCRYPT_CACHE    Set to 'true' if no external caching layer is used (default: false)"
             exit 0
@@ -338,7 +339,12 @@ lb_estimator = true
 
 dnscrypt_servers = true
 doh_servers = true
-odoh_servers = false
+# odoh_servers is deliberately NOT emitted. The key is a plain bool, so a build
+# that supports it defaults to false when it is absent — which is what this
+# benchmark wants anyway. Writing it explicitly buys nothing and is fatal on
+# builds compiled without ODoH: dnscrypt-proxy rejects unknown config keys
+# outright ("[FATAL] Unsupported key in configuration file"), so the profiler
+# cannot start at all rather than degrading.
 
 [sources]
   [sources.public-resolvers]
