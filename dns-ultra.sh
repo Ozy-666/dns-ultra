@@ -217,22 +217,37 @@ DISABLED_SERVERS=(
 )
 
 # FASTPATH: Fixed real names. These should generally hit upstream resolver cache.
+# FASTPATH: fixed domains, queried after warmup, so these are cache hits at the
+# resolver and the authoritative servers see only the warmup.
+#
+# Every entry is backed by a hyperscale or CDN anycast DNS platform, for two
+# reasons. Load: a benchmark should not aim even light repeat traffic at small
+# or volunteer-run operators, which is the same rule RECURSION already follows.
+# Accuracy: if a warmup query is lost or a cache entry expires mid-run, the
+# retry costs whatever that domain's nameservers cost. Measured from a European
+# VPS, iana.org answers in ~110ms and wikipedia.org in ~150ms from their own
+# NS, against ~0-10ms for the operators below -- so a single miss on those used
+# to inject a >100ms outlier into a 6ms sample set.
+#
+# The list is spread across DNS providers (Cloudflare, Google, AWS, Meta, NS1,
+# Azure, Akamai, Fastly, Automattic) so the score is not a measure of one
+# provider's cache.
 FASTPATH_DOMAINS=(
     "google.com"
     "cloudflare.com"
-    "github.com"
-    "wikipedia.org"
+    "amazon.com"
+    "facebook.com"
+    "x.com"
     "microsoft.com"
     "apple.com"
     "youtube.com"
-    "telegram.org"
-    "delfi.lv"
-    "ss.com"
-    "yandex.ru"
-    "habr.com"
-    "ietf.org"
-    "iana.org"
-    "kernel.org"
+    "netflix.com"
+    "linkedin.com"
+    "github.com"
+    "wordpress.com"
+    "fastly.com"
+    "akamai.com"
+    "office.com"
 )
 
 # RECURSION: Random subdomains. Use ONLY large CDN/Anycast operators.
@@ -241,7 +256,7 @@ RECURSION_BASE_DOMAINS=(
     "cloudflare.com"
     "google.com"
     "amazon.com"
-    "wikipedia.org"
+    "facebook.com"
     "microsoft.com"
 )
 
@@ -250,7 +265,7 @@ BURST_BASE_DOMAINS=(
     "cloudflare.com"
     "google.com"
     "github.com"
-    "wikipedia.org"
+    "facebook.com"
     "amazon.com"
 )
 
@@ -843,12 +858,29 @@ profile_one_server() {
         return
     fi
 
-    # Warmup
+    # Warmup.
+    #
+    # Every FASTPATH domain must be warmed, not a hardcoded subset. The profile
+    # is defined as "fixed domains after warmup" — the cache-hit path — so any
+    # domain measured without being warmed contributes a cold miss instead, and
+    # a cold miss costs whatever that domain's authoritative servers cost, not
+    # what the resolver costs. Measured from this host: iana.org answers in
+    # ~110ms and wikipedia.org in ~150ms straight from their own nameservers,
+    # so a single unwarmed sample lands a >100ms outlier into a set whose real
+    # values are 6-7ms, and p95 over 3 rounds is exactly that outlier.
+    #
+    # Before this, 11 of the 15 FASTPATH domains were never warmed, which is
+    # what made resolvers look wildly inconsistent (quad9 showed a 6ms median
+    # against a 214ms p95). It ranked whose cache happened to be warm, which is
+    # luck, rather than resolver speed — the very averaging mistake this tool
+    # was written to avoid.
     local warm_domain _
-    for warm_domain in google.com cloudflare.com github.com wikipedia.org; do
+    # Warmup now issues ~4x the queries it used to, so it is paced the same way
+    # the measurement loop is rather than fired off back to back.
+    for warm_domain in "${FASTPATH_DOMAINS[@]}"; do
         for _ in $(seq 1 2); do
             dig_query_time "$PORT" "$warm_domain" >/dev/null 2>&1 || true
-            [ "$IS_DOH" -eq 1 ] && doh_sleep
+            if [ "${IS_DOH:-0}" -eq 1 ]; then doh_sleep; else random_sleep; fi
         done
     done
     for _ in $(seq 1 "$WARMUP_QUERIES"); do
